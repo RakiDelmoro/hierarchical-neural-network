@@ -4,6 +4,8 @@ from features import GREEN, RED, RESET
 from neurons import linear_neurons
 from model.utilities import init_params, neuron, softmax, one_hot_encoded, init_model_parameters, init_weights_stress_transport
 
+#TODO: Once we gather diverse dataset for different task if this current setup is not appropriate we should make a change
+
 def network(neuron_properties=[1000, 1], output_neurons_size=10):
     # Params init
     input_to_neurons_parameters = [init_params(784, 1000) for _ in range(output_neurons_size)]
