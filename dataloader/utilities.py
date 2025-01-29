@@ -37,3 +37,8 @@ def pad_audio_sequence(array_seq, max_length=100, dtype=np.float32):
     # Add (0,0) for each remaining dimension
     pad_width.extend((0,0) for _ in range(array_seq.ndim - 1))
     return np.pad(array_seq, pad_width, mode='constant')
+
+def norm_audio_array(arr):
+    max_abs = np.max(np.abs(arr))
+    if max_abs == 0: return arr
+    return arr / max_abs
