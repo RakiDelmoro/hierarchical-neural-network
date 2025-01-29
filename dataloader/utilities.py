@@ -31,3 +31,9 @@ def image_data_batching(img_arr, label_arr, batch_size, shuffle):
     for start_idx in range(0, num_train_samples, batch_size):
         end_idx = start_idx + batch_size
         yield img_arr[train_indices[start_idx:end_idx]], one_hot_encoded(label_arr[train_indices[start_idx:end_idx]])
+
+def pad_audio_sequence(array_seq, max_length=100, dtype=np.float32):
+    pad_width = [(0, max_length - array_seq.shape[0])]
+    # Add (0,0) for each remaining dimension
+    pad_width.extend((0,0) for _ in range(array_seq.ndim - 1))
+    return np.pad(array_seq, pad_width, mode='constant')
