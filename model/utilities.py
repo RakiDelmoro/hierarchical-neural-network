@@ -2,7 +2,7 @@ import math
 import torch
 import numpy as np
 from torch.nn import init
-from neurons import linear_neurons
+from neurons import recurrent_neurons, linear_neurons
 from torch.nn.init import kaiming_uniform_
 
 def dataloader(image_arrays, label_arrays, batch_size: int, shuffle: bool):
@@ -15,7 +15,7 @@ def dataloader(image_arrays, label_arrays, batch_size: int, shuffle: bool):
         yield image_arrays[indices[start:end]], label_arrays[indices[start:end]]
 
 def one_hot_encoded(y_train):
-    one_hot_expected = np.zeros(shape=(y_train.shape[0], 10))
+    one_hot_expected = np.zeros(shape=(y_train.shape[0], 65))
     one_hot_expected[np.arange(len(y_train)), y_train] = 1
     return one_hot_expected
 
@@ -32,17 +32,16 @@ def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum(axis=-1, keepdims=True)
 
-def neuron(parameters):
-
+def neuron(input_to_memory_connections, memory_to_memory_connections, readout_connection):
+    #TODO: Modify to have a memory for each neuron
     def forward_pass(input_neurons):
-        activation = input_neurons
-        memories = [input_neurons]
-        for each in range(len(parameters)):
-            each_params = parameters[each]
-            activation = linear_neurons(activation, each_params)
-            memories.append(activation)
-
-        return activation, memories
+        neurons_memories, _ = recurrent_neurons(input_neurons, input_to_memory_connections, memory_to_memory_connections)
+        # neurons memories shape
+        batch, seq_length, feature = neurons_memories.shape
+        # Reshape neurons memories -> batch, seq, feature to batch, seq*feature
+        memories_activation = neurons_memories.reshape(batch, seq_length*feature)
+        action_potential = linear_neurons(memories_activation, readout_connection)
+        return action_potential, memories_activation
 
     return forward_pass
 
@@ -53,7 +52,6 @@ def init_model_parameters(neuron_properties):
         output_size = neuron_properties[size+1]
         parameters = init_params(input_size, output_size)
         neuron_parameters.append(parameters)
-
     return neuron_parameters
 
 def init_weights_stress_transport(neuron_properties):
@@ -61,5 +59,4 @@ def init_weights_stress_transport(neuron_properties):
     for size in range(len(neuron_properties)-1):
         weights = np.random.rand(1, neuron_properties[-(size+1)])
         weights_stress_transport.append(weights)
-
     return weights_stress_transport
