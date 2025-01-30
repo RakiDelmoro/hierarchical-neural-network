@@ -1,91 +1,72 @@
 import random
 import numpy as np
 from features import GREEN, RED, RESET
-from neurons import linear_neurons
 from model.utilities import init_params, neuron, softmax, one_hot_encoded, init_model_parameters, init_weights_stress_transport
 
-#TODO: Once we gather diverse dataset for different task if this current setup is not appropriate we should make a change
-
-def network(neuron_properties=[1000, 1], output_neurons_size=10):
+def network(network_architecture=[100, 10], neuron_architecture=[28, 100, 1], output_neurons_size=65):
     # Params init
-    input_to_neurons_parameters = [init_params(784, 1000) for _ in range(output_neurons_size)]
-    # Shared for all neurons
-    shared_neurons_parameters = init_model_parameters(neuron_properties)
-
-    outer_stress_weight_transport = [np.random.rand(1, 1000) for _ in range(output_neurons_size)]
-    neuron_stress_weight_transport = init_weights_stress_transport(neuron_properties)
+    input_to_neurons_parameters = init_params(28, 100)
+    memory_to_memory_parameters = init_params(100, 100)
+    readout_parameters = [init_params(100*28, 1) for _ in range(output_neurons_size)]
 
     # Neurons
-    neurons = [neuron(shared_neurons_parameters) for _ in range(output_neurons_size)]
+    neurons = [neuron(input_to_neurons_parameters, memory_to_memory_parameters, readout_parameters[each]) for each in range(output_neurons_size)]
 
     def forward(input_neurons):
         neurons_activation = []
-        neurons_memories = []
+        memories = []
         for each_neuron in range(output_neurons_size):
-            input_for_neuron = linear_neurons(input_neurons, input_to_neurons_parameters[each_neuron])
-            neuron_activation, neuron_memories = neurons[each_neuron](input_for_neuron)
+            neuron_activation, neurons_memories = neurons[each_neuron](input_neurons)
             neurons_activation.append(neuron_activation)
-            neurons_memories.append(neuron_memories)
+            memories.append(neurons_memories)
         output_neurons = softmax(np.concatenate(neurons_activation, axis=1, dtype=np.float32))
-        return output_neurons, neurons_memories
+        return output_neurons, memories
 
     def neurons_stress(model_output, expected_output):
         avg_neurons_loss = -np.mean(np.sum(expected_output * np.log(model_output + 1e-15), axis=1))
         return avg_neurons_loss
 
-    def update_each_neuron(neuron_memory, neuron_stress):
+    def update_each_neuron(neuron_memory, neuron_stress, parameters):
         # Backprop SUCKS Direct feedback error BETTER!
         stress = neuron_stress.reshape(-1, 1)
 
-        for i in range(len(shared_neurons_parameters)):
-            memory = neuron_memory[-(i+2)]
-            neuron_stress = np.matmul(stress, neuron_stress_weight_transport[i])
-            weights = shared_neurons_parameters[-(i+1)][0]
-            bias = shared_neurons_parameters[-(i+1)][1]
-            # Update parameters
-            weights -= 0.01 * np.matmul(memory.transpose(), neuron_stress) / neuron_stress.shape[0]
-            bias -= 0.01 * np.sum(neuron_stress, axis=0) / neuron_stress.shape[0]
+        weights = parameters[0]
+        bias = parameters[1]
+        # Update parameters
+        weights -= 0.01 * np.matmul(neuron_memory.transpose(), stress) / neuron_stress.shape[0]
+        bias -= 0.01 * np.sum(stress, axis=0) / stress.shape[0]
 
-    def update_outer_connections(memory_neurons, neuron_stress):
-        stress = neuron_stress.reshape(-1, 1)
-        for each in range(len(input_to_neurons_parameters)):
-            neuron_stress = np.matmul(stress, outer_stress_weight_transport[each])
-            weights = input_to_neurons_parameters[-(each+1)][0]
-            bias = input_to_neurons_parameters[-(each+1)][1]
-            # Update parameters
-            weights -= 0.01 * np.matmul(memory_neurons.transpose(), neuron_stress) / memory_neurons.shape[0]
-            bias -= 0.01 * np.sum(neuron_stress, axis=0) / memory_neurons.shape[0]
-
-    def train_neurons(prediction, expected, input_neurons, neurons_memories):
-        total_output_neurons = prediction.shape[-1]
-        for neuron_idx in range(total_output_neurons):
+    def train_neurons(prediction, expected, neurons_memories):
+        for neuron_idx in range(output_neurons_size):
             neuron_memory = neurons_memories[neuron_idx]
             neuron_activation = prediction[:, neuron_idx]
             expected_neuron_activation = expected[:, neuron_idx]
+            neuron_parameters = readout_parameters[neuron_idx]
             # Mean squared error for a neuron
             neuron_stress = 2*(neuron_activation - expected_neuron_activation)
-            update_each_neuron(neuron_memory, neuron_stress)
-            update_outer_connections(input_neurons, neuron_stress)
+            update_each_neuron(neuron_memory, neuron_stress, neuron_parameters)
 
     def training_phase(dataloader):
+        print("TRAINING....")
         batch_losses = []
         for batch_image, batch_expected in dataloader:
-            input_batch_image = batch_image
-            one_hot_encoded_expected = one_hot_encoded(batch_expected)
+            input_batch_image = batch_image.reshape(-1, 28, 28)
             prediction, neurons_memories = forward(input_batch_image)
-            avg_neurons_stress = neurons_stress(prediction, one_hot_encoded_expected)
-            train_neurons(prediction, one_hot_encoded_expected, input_batch_image, neurons_memories)
+            avg_neurons_stress = neurons_stress(prediction, batch_expected)
+            train_neurons(prediction, batch_expected, neurons_memories)
             print(avg_neurons_stress)
             batch_losses.append(avg_neurons_stress)
 
         return np.mean(np.array(batch_losses))
 
     def testing_phase(dataloader):
+        print("TESTING....")
         accuracy = []
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            input_image = batched_image
+            input_image = batched_image.reshape(-1, 28, 28)
+            batched_label = batched_label.argmax(axis=-1)
             prediction, _ = forward(input_image)
             batch_accuracy = (prediction.argmax(axis=-1) == batched_label).mean()
             for each in range(len(batched_label)//10):
