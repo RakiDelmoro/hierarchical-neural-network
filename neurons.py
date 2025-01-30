@@ -14,8 +14,8 @@ def recurrent_neurons(input_neurons, inp_to_memory_params, memory_to_memory_para
     previous_memory = starting_memory
     memories = [starting_memory]
     for t in range(seq_len):
-        current_memory_state = np.matmul(input_neurons[t], weight_ih.T) + bias_ih
-        previous_memory_state = np.matmul(previous_memory, weight_hh.T) + bias_hh
+        current_memory_state = np.matmul(input_neurons[t], weight_ih) + bias_ih
+        previous_memory_state = np.matmul(previous_memory, weight_hh) + bias_hh
         activation = np.tanh(current_memory_state + previous_memory_state)
         memories.append(activation)
         previous_memory = activation
