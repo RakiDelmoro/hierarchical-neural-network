@@ -13,7 +13,7 @@ def decode(indices, unique_chars: list):
     return [int_to_str_map[i] for i in indices]
 
 def text_label_one_hot(label_arr):
-    one_hot_expected = np.zeros(shape=(label_arr.shape[0], 10))
+    one_hot_expected = np.zeros(shape=(label_arr.shape[0], 65))
     one_hot_expected[np.arange(len(label_arr)), label_arr] = 1
     return one_hot_expected
 
