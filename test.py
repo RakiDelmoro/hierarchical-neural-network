@@ -72,7 +72,37 @@ def pendulum_simulation(episodes=1000, steps_per_episode=500):
 
     return np.array(states), np.array(actions)
 
+def normalize(states, actions):
+    states_max = np.max(states, axis=0)
+    states_min = np.min(states, axis=0)
 
+    actions_max = np.max(actions, axis=0)
+    actions_min = np.min(actions, axis=0)
+
+    normalized_states = 2 * (states - states_min) / (states_max - states_min) - 1
+    normalized_actions = 2 * (actions - actions_min) / (actions_max - actions_min) - 1
+
+    return normalized_states, normalized_actions 
+
+def initializer(input_size, output_size):
+    gen_w_matrix = torch.empty(size=(input_size, output_size))
+    gen_b_matrix = torch.empty(size=(output_size,))
+    weights = kaiming_uniform_(gen_w_matrix, a=math.sqrt(5))
+    fan_in, _ = init._calculate_fan_in_and_fan_out(weights)
+    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+    bias = init.uniform_(gen_b_matrix, -bound, bound)
+    return [np.array(weights), np.array(bias)]
+
+def parameters_init(network_architecture: list):
+    parameters = []
+    for size in range(len(network_architecture)-1):
+        input_size = network_architecture[size]
+        output_size = network_architecture[size+1]
+        connections = initializer(input_size, output_size)
+        parameters.append(connections)
+    return parameters
+
+def neural_network(parameters):
 
     def forward(input_data):
         activation = input_data
@@ -142,6 +172,7 @@ def visualize_episode(states, actions,  episode_length=1000):
 
 # Pendulum simulations
 states, actions = pendulum_simulation()
+
 
 # Create animation
 visualize_episode(states, actions)
