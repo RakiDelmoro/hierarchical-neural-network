@@ -1,0 +1,9 @@
+# System parameters
+CART_MASS = 1.0
+POLE_MASS = 0.1
+LENGTH = 0.5
+GRAVITY = 9.81
+TIME_STEP = 0.02
+ACTION_MEAN = 0.0
+ACTION_STD = 10.0
+
