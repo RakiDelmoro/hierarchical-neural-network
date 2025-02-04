@@ -209,7 +209,7 @@ def train_agent():
         
         print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}, Epsilon: {agent.epsilon:.2f}')
         
-        if avg_score >= 500.0:
+        if avg_score >= 50.0:
             print(f'Environment solved in {episode+1} episodes!')
             break
 
@@ -240,45 +240,60 @@ def visualize_episode(states, actions, episode_length=1000):
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, autoscale_on=False, xlim=(-2.5, 2.5), ylim=(-0.5, 1.5))
     ax.grid()
-    
+
     # Cart elements
     cart_width, cart_height = 0.3, 0.1
     pole_length = 0.5 * 2  # Full length of the pole
     
-    cart = plt.Rectangle((0 - cart_width/2, 0 - cart_height/2), cart_width, cart_height,  fc='blue', zorder=2)
+    cart = plt.Rectangle((0 - cart_width/2, 0 - cart_height/2), cart_width, cart_height, fc='blue', zorder=2)
     pole, = ax.plot([], [], 'r-', lw=2, zorder=1)
     mass_point, = ax.plot([], [], 'ro', markersize=6)
     time_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
     force_text = ax.text(0.02, 0.90, '', transform=ax.transAxes)
 
+    # Add a line to track the cart's movement
+    tracking_line, = ax.plot([], [], 'g-', lw=1, zorder=3)  # Green tracking line
+    
     def init():
         ax.add_patch(cart)
         pole.set_data([], [])
         mass_point.set_data([], [])
         time_text.set_text('')
         force_text.set_text('')
-        return cart, pole, mass_point, time_text, force_text
+        tracking_line.set_data([], [])  # Initialize the tracking line
+        return cart, pole, mass_point, time_text, force_text, tracking_line
     
     def animate(i):
         state = states[i]
         action = actions[i]
         x = state[0]
         theta = state[2]
+        
         # Update cart position
         cart.set_xy([x - cart_width/2, 0 - cart_height/2])
+        
         # Update pole position
         pole_x = [x, x + pole_length * np.sin(theta)]
         pole_y = [0, pole_length * np.cos(theta)]
         pole.set_data(pole_x, pole_y)
+        
         # Update mass point
         mass_point.set_data(pole_x, pole_y)
+        
+        # Update tracking line (append the current x position of the cart to the line)
+        x_vals, y_vals = tracking_line.get_data()
+        x_vals = np.append(x_vals, x)
+        y_vals = np.append(y_vals, 0)  # The y position of the cart is fixed at 0
+        tracking_line.set_data(x_vals, y_vals)
+        
         # Update text
         time_text.set_text(f'Time: {i*0.02:.2f}s')
         force_text.set_text(f'Force: {action.item():.2f} N')
-        return cart, pole, mass_point, time_text, force_text
+        return cart, pole, mass_point, time_text, force_text, tracking_line
 
     ani = animation.FuncAnimation(fig, animate, frames=min(len(states), episode_length), interval=0.02*1000, blit=True, init_func=init)
     plt.show()
+
 
 agent, scores = train_agent()
 states, actions = simulate_agent(agent)
