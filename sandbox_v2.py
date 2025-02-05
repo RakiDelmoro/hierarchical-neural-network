@@ -9,12 +9,7 @@ class InvertedPendulum:
         pygame.init()
         self.WIDTH, self.HEIGHT = 750, 750
         self.FPS = 60
-        self.COLORS = {
-            'WHITE': (255, 255, 255),
-            'BLACK': (0, 0, 0),
-            'RED': (255, 0, 0),
-            'BLUE': (0, 0, 255),
-            'GRAY': (128, 128, 128)}
+        self.COLORS = {'WHITE': (255, 255, 255), 'BLACK': (0, 0, 0), 'RED': (255, 0, 0), 'BLUE': (0, 0, 255), 'GRAY': (128, 128, 128)}
 
         self.CART_WIDTH, self.CART_HEIGHT = 50, 10
         self.TRACK_LEFT, self.TRACK_RIGHT = 100, self.WIDTH - 100
@@ -44,8 +39,47 @@ class InvertedPendulum:
 
         return [direction_x, direction_y, self.angular_velocity * 0.1, cart_position_normalized]          
 
+    # def _calculate_reward(self):
+        # return abs(math.pi - self.angle) / (2 * math.pi)
+
     def _calculate_reward(self):
-        return abs(math.pi - self.angle) / math.pi
+        """
+        Calculate reward for the inverted pendulum swing-up task.
+        The goal is to swing up the pendulum and balance it upright while keeping the cart centered.
+        
+        State variables used:
+        - self.angle: pendulum angle (pi is pointing down, 0 is pointing up)
+        - self.angular_velocity: pendulum angular velocity
+        - self.cart_position: cart position on track
+        - self.cart_velocity: cart velocity
+        
+        Returns:
+        float: Calculated reward
+        """
+        # Parameters
+        angle_weight = 1.0
+        position_weight = 0.5
+        velocity_weight = 0.3
+        
+        # Angle reward: maximum (1.0) when upright (angle = 0), minimum (0.0) when downward (angle = pi)
+        # Using cosine gives a smooth reward that encourages continuous progress
+        angle_reward = 0.5 * (1 + math.cos(self.angle))  # Normalized between 0 and 1
+        
+        # Position reward: maximum (1.0) at center, decreases with distance
+        track_center = (self.TRACK_RIGHT + self.TRACK_LEFT) / 2
+        position_deviation = abs(self.cart_position - track_center)
+        max_deviation = (self.TRACK_RIGHT - self.TRACK_LEFT) / 2
+        position_reward = 1.0 - (position_deviation / max_deviation)
+        
+        # Velocity penalties: discourage excessive velocities
+        velocity_penalty = -(self.cart_velocity**2 + self.angular_velocity**2) * 0.01
+        
+        # Combine rewards
+        total_reward = (angle_weight * angle_reward +
+                    position_weight * position_reward +
+                    velocity_weight * velocity_penalty)
+        
+        return total_reward
 
     def update_physics(self, action):
         """Physics update remains unchanged (correct swing dynamics)"""
