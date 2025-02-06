@@ -1,10 +1,6 @@
-import pygame
 import math
+import pygame
 import numpy as np
-import torch.nn as nn
-import torch
-from scipy.integrate import odeint
-
 
 # Pygame visualization
 FPS = 60
@@ -30,7 +26,6 @@ def initialize_state():
     cart_velocity = 0.0
     angle = math.pi
     angular_velocity = 0.0
-
     return [cart_position, cart_velocity, angle, angular_velocity]
 
 def update_state(state, action):
@@ -117,20 +112,197 @@ def visualize_current_state(state):
         pygame.draw.circle(SCREEN, COLORS['RED'], (int(pendulum_end[0]), int(pendulum_end[1])), 10)
         pygame.display.flip()
 
-def runner():
+# Visualize pendulum simulation and I print reward for debugging purposes
+def runner(states):
     running = True
     state = initialize_state()
-    while running:
+    for each in range(len(states)):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            episode_state = states[each]
+            for i in range(len(episode_state)):
+                visualize_current_state(episode_state[i])
+                clock.tick(FPS)
 
-        # Replace with agent's action selection
-        action = np.random.uniform(-1, 1)  # Random policy example
-        state = update_state(state, action)
-        action_reward = reward(state)
-        print(action_reward)
-        visualize_current_state(state)
-        clock.tick(FPS)
+class InvertedPendulum:
+    def __init__(self, 
+                 m_cart=1.0,     # mass of cart (kg)
+                 m_pole=0.1,     # mass of pole (kg)
+                 total_length=1.0,  # total length of pole (m)
+                 gravity=9.81):  # gravitational acceleration (m/s^2)
+        self.m_cart = m_cart
+        self.m_pole = m_pole
+        self.total_length = total_length
+        self.g = gravity
+        
+        # Derived parameters
+        self.total_mass = m_cart + m_pole
+        self.pole_mass_length = m_pole * total_length
 
-runner()
+    def dynamics(self, state, force):
+        """
+        Compute the dynamics of the inverted pendulum system
+        
+        State vector: [x, x_dot, theta, theta_dot]
+        - x: cart position (m)
+        - x_dot: cart velocity (m/s)
+        - theta: pole angle from vertical (radians)
+        - theta_dot: pole angular velocity (rad/s)
+        
+        Force: Applied force to the cart (N)
+        
+        Returns: State derivatives
+        """
+        x, x_dot, theta, theta_dot = state
+        
+        # Trigonometric helpers
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        
+        # Denominator term
+        denom = self.total_mass - self.m_pole * cos_theta * cos_theta
+        
+        # Acceleration of cart
+        x_ddot = (force + self.pole_mass_length * theta_dot**2 * sin_theta - 
+                  self.m_pole * self.g * cos_theta * sin_theta) / denom
+        
+        # Angular acceleration of pole
+        theta_ddot = (self.g * sin_theta - x_ddot * cos_theta) / self.total_length
+        
+        return [x_dot, x_ddot, theta_dot, theta_ddot]
+
+    def runge_kutta_integration(self, state, force, dt=0.01):
+        """
+        4th order Runge-Kutta numerical integration
+        """
+        k1 = np.array(self.dynamics(state, force))
+        k2 = np.array(self.dynamics(state + dt/2 * k1, force))
+        k3 = np.array(self.dynamics(state + dt/2 * k2, force))
+        k4 = np.array(self.dynamics(state + dt * k3, force))
+        
+        next_state = state + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+        return next_state
+
+    def generate_swing_up_trajectories(self, 
+                                       num_trajectories=1000, 
+                                       trajectory_length=200,
+                                       exploration_noise=0.1):
+        """
+        Generate training trajectories for swing-up control
+        
+        Returns:
+        - states: Array of state trajectories
+        - actions: Array of applied force trajectories
+        """
+        states_collection = []
+        actions_collection = []
+        
+        for _ in range(num_trajectories):
+            # Initial random state
+            state = np.array([
+                WIDTH // 2,     # x
+                np.random.uniform(-1, 1),     # x_dot
+                np.pi,  # theta
+                np.random.uniform(-2, 2)      # theta_dot
+            ])
+            
+            trajectory_states = [state]
+            trajectory_actions = []
+            
+            for _ in range(trajectory_length):
+                # Simple swing-up policy with noise
+                # Energy-based control with random exploration
+                energy = self.potential_energy(state) + 0.5 * self.kinetic_energy(state)
+                force = -np.sign(state[2]) * np.abs(np.sin(state[2])) * 10
+                
+                # Add exploration noise
+                force += np.random.normal(0, exploration_noise)
+                
+                # Clip force to realistic bounds
+                force = np.clip(force, -20, 20)
+                
+                trajectory_actions.append(force)
+                
+                # Simulate next state
+                state = self.runge_kutta_integration(state, force)
+                trajectory_states.append(state)
+            
+            states_collection.append(trajectory_states)
+            actions_collection.append(trajectory_actions)
+        
+        return (np.array(states_collection), 
+                np.array(actions_collection))
+
+    def potential_energy(self, state):
+        """Compute potential energy of the system"""
+        x, _, theta, _ = state
+        return self.pole_mass_length * self.g * (1 - np.cos(theta))
+
+    def kinetic_energy(self, state):
+        """Compute kinetic energy of the system"""
+        x, x_dot, theta, theta_dot = state
+        return 0.5 * self.total_mass * x_dot**2 + \
+               0.5 * self.pole_mass_length * (x_dot * np.cos(theta) + 
+                                              self.total_length * theta_dot)**2
+
+import matplotlib.pyplot as plt
+
+def visualize_trajectories(states):
+    """
+    Visualize generated trajectories
+    
+    Args:
+    - states: numpy array of state trajectories
+    """
+    plt.figure(figsize=(15, 10))
+    
+    # Plot cart position
+    plt.subplot(2, 2, 1)
+    plt.title('Cart Position')
+    for traj in states:
+        plt.plot(traj[:, 0])
+    plt.xlabel('Time Step')
+    plt.ylabel('Position (m)')
+    
+    # Plot pole angle
+    plt.subplot(2, 2, 2)
+    plt.title('Pole Angle')
+    for traj in states:
+        plt.plot(traj[:, 2])
+    plt.xlabel('Time Step')
+    plt.ylabel('Angle (radians)')
+    
+    # Plot cart velocity
+    plt.subplot(2, 2, 3)
+    plt.title('Cart Velocity')
+    for traj in states:
+        plt.plot(traj[:, 1])
+    plt.xlabel('Time Step')
+    plt.ylabel('Velocity (m/s)')
+    
+    # Plot angular velocity
+    plt.subplot(2, 2, 4)
+    plt.title('Angular Velocity')
+    for traj in states:
+        plt.plot(traj[:, 3])
+    plt.xlabel('Time Step')
+    plt.ylabel('Angular Velocity (rad/s)')
+    
+    plt.tight_layout()
+    plt.show()
+    
+
+def main():
+    # Create inverted pendulum simulation
+    pendulum = InvertedPendulum()
+    
+    # Generate training trajectories
+    states, actions = pendulum.generate_swing_up_trajectories(
+        num_trajectories=100, 
+        trajectory_length=200
+    )
+
+    runner(states)
+
+main()
