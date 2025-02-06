@@ -123,13 +123,23 @@ def step(current_state, action):
     x, _, theta, _ = current_state
     action = -10.0 if action == 0 else 10.0
     reward = reward_function(x, theta)
+    angle_threshold = 0.5  # threshold in radians (about 5.7 degrees)
+    is_upright = abs(theta) < angle_threshold
+
+    if is_upright:
+        theta_limit = 12 * math.pi / 180  # radians
+        done = theta < -theta_limit or theta > theta_limit
+        print(done)
+    else:
+        done = False
+
     new_state = update_state(current_state, action)
-    return new_state, reward
+    return new_state, reward, done
 
 def simulation():
     features = []
     rewards = []
-    for _ in range(500):
+    for _ in range(10):
         state = initialize_state()
         while True:
             x, x_dot, theta, theta_dot = state
@@ -239,17 +249,18 @@ def train_agent():
     for episode in range(500):
         score = 0
         state = initialize_state()
+        done = False
         while True:
             action = agent.act(state)
-            next_state, reward = step(state, action)
+            next_state, reward, done = step(state, action)
             agent.memory.push(state, action, reward, next_state)
 
             loss = agent.train()
             state = next_state
             score += reward
-            print(reward)
-            if reward > 0.95:
-                print('reward is above 80%!')
+            # print(reward)
+            if done:
+                print('Pole is falling')
                 break
         if episode % 10 == 0:
             agent.update_target_network()
@@ -286,14 +297,8 @@ states, actions = simulate_agent(agent)
 
 def update(i):
     x, x_dot, theta, theta_dot = states[i]
-    # reward = reward_function(x, theta)
-    # print(reward)
-        # print(actions[frame])
-        # print(abs(math.pi - theta))
-
-        # Clamp the cart position to stay within the plot bounds
+    # Clamp the cart position to stay within the plot bounds
     x = np.clip(x, -1.2, 1.2)  # Prevent the cart from going too far left or right
-
     # Update cart position (a rectangle) and pole (a line)
     cart.set_data([x - 0.1, x + 0.1], [0, 0])  # Cart is a 1m wide rectangle
     pole.set_data([x, x + l * np.sin(theta)], [0, l * np.cos(theta)])
