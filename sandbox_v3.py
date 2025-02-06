@@ -1,11 +1,11 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 import math
 import random
 import torch
+import numpy as np
 import torch.nn as nn
+import matplotlib.pyplot as plt
 from collections import deque
+from matplotlib.animation import FuncAnimation
 
 
 # System parameters
@@ -106,6 +106,7 @@ def reward_function(cart_position, angle, cart_velocity=0, pole_velocity=0):
     # Maps [-π, π] -> [0, 1] with 1 being upright
     upright_reward = (math.cos(angle_norm) + 1) / 2
     
+    '''So far we don't penalize it when the cart is not centered (Simplicity)'''
     # Position penalty: how centered is the cart
     # Maps max track deviation to 0, centered to 1
     # pos_reward = max(0, 1 - abs(cart_position) / 2.0)
@@ -201,7 +202,7 @@ class DQLAgent:
         self.policy_net = DQN(state_size, action_size)
         self.target_net = DQN(state_size, action_size)
         self.target_net.load_state_dict(self.policy_net.state_dict())
-        
+
         self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
     
@@ -292,9 +293,7 @@ def simulate_agent(agent):
 agent = train_agent()
 states, actions = simulate_agent(agent)
 
-# print(len(states))
-# print(rewards[0])
-
+# Visualization
 def update(i):
     x, x_dot, theta, theta_dot = states[i]
     # Clamp the cart position to stay within the plot bounds
