@@ -8,8 +8,8 @@ from collections import deque
 from matplotlib.animation import FuncAnimation
 
 # System parameters
-cart_mass = 1.0   # Cart mass (kg)
-pole_mass = 0.1   # Pole mass (kg)
+cart_mass = 5.0   # Cart mass (kg)
+pole_mass = 0.01   # Pole mass (kg)
 pole_length = 0.5   # Pole length (m)
 gravity = 9.81  # Gravity (m/s²)
 time_step = 0.02 # Time step (s)
@@ -79,7 +79,7 @@ def update_tracking_line():
 def step(current_state, action):
     cart_position, _, pole_angle, pole_angular_velocity = current_state
 
-    action = (action - 1) * 10.0  # Maps [0,1,2] to [-10,0,10]
+    force = (action - 1) * 10.0  # Maps [0,1,2] to [-10,0,10]
 
     angle_threshold = 0.4  # ~28.6 degrees for upright position
     position_limit = 1.5    # Cart position limits
@@ -103,32 +103,32 @@ def step(current_state, action):
 
     reward = reward + position_penalty
 
-    new_state = update_state(current_state, action)
+    new_state = update_state(current_state, force)
     return new_state, reward, done
 
 class DQN(nn.Module):
     def __init__(self, input_size, output_size):
         super(DQN, self).__init__()
         self.network = nn.Sequential(
-            nn.Linear(input_size, 64),
+            nn.Linear(input_size, 128),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.ReLU(),
-            nn.Linear(64, output_size))
-    
+            nn.Linear(128, output_size))
+
     def forward(self, x):
         return self.network(x)
 
 class ReplayBuffer:
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
-    
+
     def push(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
-    
+
     def sample(self, batch_size):
         return random.sample(self.buffer, batch_size)
-    
+
     def __len__(self):
         return len(self.buffer)
 
@@ -136,7 +136,7 @@ class DQLAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        
+
         # DQN hyperparameters
         self.gamma = 0.99
         self.epsilon = 1.0
@@ -145,7 +145,7 @@ class DQLAgent:
         self.learning_rate = 0.001
         self.batch_size = 256
         self.memory = ReplayBuffer(100000)
-        
+
         # Neural Networks
         self.policy_net = DQN(state_size, action_size)
         self.target_net = DQN(state_size, action_size)
@@ -153,11 +153,11 @@ class DQLAgent:
 
         self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
-    
+
     def act(self, state):
         if random.random() < self.epsilon:
             return random.randrange(self.action_size)
-        
+
         with torch.no_grad():
             state = torch.FloatTensor(state).unsqueeze(0)
             q_values = self.policy_net(state)
@@ -202,7 +202,7 @@ def train_agent():
         state = initialize_state()
         done = False
         #TODO: DEBUG!!
-        for _ in range(500):
+        for _ in range(1000):
             action = agent.act(state)
             next_state, reward, done = step(state, action)
             agent.memory.push(state, action, reward, next_state, done)
@@ -224,6 +224,9 @@ def train_agent():
         #     print(f'Environment solved in {episode+1} episodes!')
         #     break
         # episode += 1
+
+    torch.save(agent.policy_net.state_dict(), 'model.pth')
+    
     return agent
 
 def simulate_agent(agent):
