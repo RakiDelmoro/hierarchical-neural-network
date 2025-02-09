@@ -8,14 +8,12 @@ from collections import deque
 from matplotlib.animation import FuncAnimation
 
 # System parameters
-cart_mass = 5.0   # Cart mass (kg)
-pole_mass = 0.01   # Pole mass (kg)
-pole_length = 0.5   # Pole length (m)
-gravity = 9.81  # Gravity (m/s²)
-time_step = 0.02 # Time step (s)
-total_time = 10.0 # Simulation duration (s)
-# Time steps for the animation
-time_steps = 250
+CART_MASS = 5.0   # Cart mass (kg)
+POLE_MASS = 0.01   # Pole mass (kg)
+POLE_LENGTH = 0.5   # Pole length (m)
+GRAVITY = 9.81  # Gravity (m/s²)
+TIME_STEP = 0.02 # Time step (s)
+
 
 # Controller gains
 Kp = 150.0  # Proportional gain for balancing
@@ -51,15 +49,15 @@ def update_state(state, force):
     sin_theta = math.sin(pole_angle)
 
     # Compute accelerations using equations of motion
-    temp = (force + pole_mass * pole_length * pole_angular_velocity**2 * sin_theta) / (cart_mass + pole_mass)
-    theta_acc = (gravity * sin_theta - cos_theta * temp) / (pole_length * (4.0/3.0 - pole_mass * cos_theta**2 / (cart_mass + pole_mass)))
-    x_acc = temp - pole_mass * pole_length * theta_acc * cos_theta / (cart_mass + pole_mass)
+    temp = (force + POLE_MASS * POLE_LENGTH * pole_angular_velocity**2 * sin_theta) / (CART_MASS + POLE_MASS)
+    theta_acc = (GRAVITY * sin_theta - cos_theta * temp) / (POLE_LENGTH * (4.0/3.0 - POLE_MASS * cos_theta**2 / (CART_MASS + POLE_MASS)))
+    x_acc = temp - POLE_MASS * POLE_LENGTH * theta_acc * cos_theta / (CART_MASS + POLE_MASS)
 
     # Euler integration
-    cart_velocity += x_acc * time_step
-    cart_position += cart_velocity * time_step
-    pole_angular_velocity += theta_acc * time_step
-    pole_angle += pole_angular_velocity * time_step
+    cart_velocity += x_acc * TIME_STEP
+    cart_position += cart_velocity * TIME_STEP
+    pole_angular_velocity += theta_acc * TIME_STEP
+    pole_angle += pole_angular_velocity * TIME_STEP
 
     cart_position = np.clip(cart_position, -1.5, 1.5)
 
@@ -259,12 +257,12 @@ def update(i):
     x = np.clip(x, -1.5, 1.5)  # Prevent the cart from going too far left or right
     # Update cart position (a rectangle) and pole (a line)
     cart.set_data([x - 0.1, x + 0.1], [0, 0])  # Cart is a 1m wide rectangle
-    pole.set_data([x, x + pole_length * np.sin(theta)], [0, pole_length * np.cos(theta)])
+    pole.set_data([x, x + POLE_LENGTH * np.sin(theta)], [0, POLE_LENGTH * np.cos(theta)])
 
-    time_text.set_text(f'Time: {i*time_step:.2f}s')
+    time_text.set_text(f'Time: {i*TIME_STEP:.2f}s')
     force_text.set_text(f'Force: {actions[i].item():.2f} N')
     return cart, pole, time_text, force_text
 
 update_tracking_line()  # Call once to initialize the tracking line
-ani = FuncAnimation(fig, update, frames=len(states), interval=time_step * 1000, blit=True)
+ani = FuncAnimation(fig, update, frames=len(states), interval=TIME_STEP * 1000, blit=True)
 plt.show()
