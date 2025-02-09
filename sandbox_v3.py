@@ -252,3 +252,6 @@ def update(i):
 update_tracking_line()  # Call once to initialize the tracking line
 ani = FuncAnimation(fig, update, frames=len(states), interval=TIME_STEP * 1000, blit=True)
 plt.show()
+
+# TODO: Make this functional and use NUMPY instead of TORCH
+
