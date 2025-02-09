@@ -147,6 +147,7 @@ class DQLAgent:
         self.criterion = nn.MSELoss()
 
     def act(self, state):
+        # If true agent can explore random actions
         if random.random() < self.epsilon:
             return random.randrange(self.action_size)
 
