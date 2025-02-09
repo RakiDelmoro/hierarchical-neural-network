@@ -193,12 +193,12 @@ def train_agent():
         score = 0
         state = initialize_state()
         done = False
-        #TODO: DEBUG!!
+
         for _ in range(1000):
             action = agent.act(state)
             next_state, reward, done = step(state, action)
             agent.memory.push(state, action, reward, next_state, done)
-            # print(done)
+
             loss = agent.train()
             state = next_state
             score += reward
@@ -222,13 +222,12 @@ def simulate_agent(agent):
     actions = []
     for _ in range(10):
         state = initialize_state()
-        # start_time = time.time()
         for i in range(500):
             action = agent.act(state)
             states.append(state)
             actions.append(action)
             print(state[2])
-            update_state, _, done = step(state, action)
+            update_state, _, _ = step(state, action)
             state = update_state
 
     return np.array(states), np.array(actions)
@@ -238,7 +237,7 @@ states, actions = simulate_agent(agent)
 
 # Visualization
 def update(i):
-    x, x_dot, theta, theta_dot = states[i]
+    x, _, theta, _ = states[i]
     # Clamp the cart position to stay within the plot bounds
     x = np.clip(x, -1.5, 1.5)  # Prevent the cart from going too far left or right
     # Update cart position (a rectangle) and pole (a line)
