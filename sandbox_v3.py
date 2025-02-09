@@ -14,12 +14,6 @@ POLE_LENGTH = 0.5   # Pole length (m)
 GRAVITY = 9.81  # Gravity (m/s²)
 TIME_STEP = 0.02 # Time step (s)
 
-
-# Controller gains
-Kp = 150.0  # Proportional gain for balancing
-Kd = 30.0   # Derivative gain for balancing
-K_swing = 15.0  # Gain for swing-up
-
 # Set up the figure and axis for the animation
 fig, ax = plt.subplots()
 ax.set_xlim(-3, 3)  # Limit x-axis from -3m to 3m
@@ -217,12 +211,8 @@ def train_agent():
         avg_score = np.mean(scores[-500:])
         
         print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}, Epsilon: {agent.epsilon:.2f}')
-        
-        # if avg_score >= 50.0:
-        #     print(f'Environment solved in {episode+1} episodes!')
-        #     break
-        # episode += 1
 
+    # Save model weights
     torch.save(agent.policy_net.state_dict(), 'model.pth')
     
     return agent
@@ -232,7 +222,6 @@ def simulate_agent(agent):
     actions = []
     for _ in range(10):
         state = initialize_state()
-        done = False
         # start_time = time.time()
         for i in range(500):
             action = agent.act(state)
@@ -241,9 +230,6 @@ def simulate_agent(agent):
             print(state[2])
             update_state, _, done = step(state, action)
             state = update_state
-            # elapsed_time = time.time() - start_time
-            # if elapsed_time > 20:
-            #     done = True 
 
     return np.array(states), np.array(actions)
 
