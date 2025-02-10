@@ -6,10 +6,11 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from collections import deque
 from matplotlib.animation import FuncAnimation
+from PendulumModel.utils import parameters_init
 
 # System parameters
-CART_MASS = 5.0   # Cart mass (kg)
-POLE_MASS = 0.01   # Pole mass (kg)
+CART_MASS = 1.0   # Cart mass (kg)
+POLE_MASS = 0.1   # Pole mass (kg)
 POLE_LENGTH = 0.5   # Pole length (m)
 GRAVITY = 9.81  # Gravity (m/s²)
 TIME_STEP = 0.02 # Time step (s)
@@ -143,7 +144,7 @@ class DQLAgent:
         self.target_net = DQN(state_size, action_size)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
 
     def act(self, state):
@@ -203,13 +204,12 @@ def train_agent():
             loss = agent.train()
             state = next_state
             score += reward
-            # done = truncated
         
         if episode % 10 == 0:
             agent.update_target_network()
 
         scores.append(score)
-        avg_score = np.mean(scores[-500:])
+        avg_score = np.mean(scores[-10:])
         
         print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}, Epsilon: {agent.epsilon:.2f}')
 
@@ -223,7 +223,7 @@ def simulate_agent(agent):
     actions = []
     for _ in range(10):
         state = initialize_state()
-        for i in range(500):
+        for i in range(1000):
             action = agent.act(state)
             states.append(state)
             actions.append(action)
@@ -255,3 +255,4 @@ plt.show()
 
 # TODO: Make this functional and use NUMPY instead of TORCH
 
+# training_agent()
