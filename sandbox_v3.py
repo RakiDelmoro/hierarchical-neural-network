@@ -31,7 +31,7 @@ force_text.set_text('')
 
 def initialize_state():
     # Initialize the state
-    pole_angle = math.pi  # Angle (rad)
+    pole_angle = math.pi  # Angle (rad) with small random perturbation
     pole_angular_velocity = 0.0  # Angular velocity (rad/s)
     cart_position = 0.0       # Cart position (m)
     cart_velocity = 0.0      # Cart velocity (m/s)
@@ -70,36 +70,37 @@ def update_tracking_line():
     tracking_line.set_data(x_values, y_values)
 
 def step(current_state, action):
-    cart_position, _, pole_angle, pole_angular_velocity = current_state
-
     force = (action - 1) * 10.0  # Maps [0,1,2] to [-10,0,10]
+    reward, done = reward_function(current_state)
+    new_state = update_state(current_state, force)
+    return new_state, reward, done
 
-    angle_threshold = 0.4  # ~28.6 degrees for upright position
+def reward_function(current_state):
+    cart_position, _, pole_angle, pole_angular_velocity = current_state
+    angle_threshold = 0.2  # ~28.6 degrees for upright position
     position_limit = 1.5    # Cart position limits
-    
     position_penalty = -0.5 * (cart_position**2)
 
     # Normalize theta to [-pi, pi]
     pole_angle = ((pole_angle + math.pi) % (2 * math.pi)) - math.pi
     done = abs(cart_position) > position_limit or abs(pole_angular_velocity) > 15.0
-    
+    reward = 0.0
+
     # Check if pole is in upright position
     is_upright = abs(pole_angle) < angle_threshold
     if is_upright:
-        # When upright, reward for maintaining balance
         position_reward = 1.0 - (cart_position / position_limit) ** 2 
         reward = 1.0 + position_reward
-    else:
+    else:        
         # When not upright, reward for moving towards upright position
         # Cosine reward peaks at theta = 0 (upright) and is minimum at theta = ±pi (downward)
         reward = 0.5 * (math.cos(pole_angle) + 1.0)
 
     reward = reward + position_penalty
-
-    new_state = update_state(current_state, force)
-    return new_state, reward, done
+    return reward, done
 
 class DQN(nn.Module):
+
     def __init__(self, input_size, output_size):
         super(DQN, self).__init__()
         self.network = nn.Sequential(
@@ -144,7 +145,7 @@ class DQLAgent:
         self.target_net = DQN(state_size, action_size)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
 
     def act(self, state):
@@ -191,12 +192,13 @@ class DQLAgent:
 def train_agent():
     agent = DQLAgent(4, 3)
     scores = []
-    for episode in range(1000):
+    episode = 0
+    while True:
         score = 0
         state = initialize_state()
         done = False
 
-        for _ in range(1000):
+        for _ in range(500):
             action = agent.act(state)
             next_state, reward, done = step(state, action)
             agent.memory.push(state, action, reward, next_state, done)
@@ -204,17 +206,23 @@ def train_agent():
             loss = agent.train()
             state = next_state
             score += reward
-        
+
         if episode % 10 == 0:
             agent.update_target_network()
 
         scores.append(score)
-        avg_score = np.mean(scores[-10:])
-        
+        avg_score = np.mean(scores[-100:])
+
+        if avg_score > 500:
+            print(f'Environment solved in {episode} episodes!')
+            break
+
         print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}, Epsilon: {agent.epsilon:.2f}')
 
+        episode += 1
+
     # Save model weights
-    torch.save(agent.policy_net.state_dict(), 'model.pth')
+    torch.save(agent.policy_net.state_dict(), 'model_v2.pth')
     
     return agent
 
