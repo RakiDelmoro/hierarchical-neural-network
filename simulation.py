@@ -68,7 +68,7 @@ class CartPoleSimulator:
         self.control_center_y = SCREEN_HEIGHT - 50  # 50 pixels from bottom
 
         self.model = NeuralNetwork(4, 3)
-        self.model.load_state_dict(torch.load('model_v2.pth', weights_only=True))
+        self.model.load_state_dict(torch.load('model.pth', weights_only=True))
 
     def calculate_mouse_force(self, mouse_pos):
         mouse_x, _ = mouse_pos
