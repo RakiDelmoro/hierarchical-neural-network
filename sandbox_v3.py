@@ -100,7 +100,7 @@ def reward_function(current_state):
     return reward, done
 
 class DQN(nn.Module):
-
+ 
     def __init__(self, input_size, output_size):
         super(DQN, self).__init__()
         self.network = nn.Sequential(
@@ -145,7 +145,7 @@ class DQLAgent:
         self.target_net = DQN(state_size, action_size)
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        self.optimizer = torch.optim.Adam(self.policy_net.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.SGD(self.policy_net.parameters(), lr=self.learning_rate)
         self.criterion = nn.MSELoss()
 
     def act(self, state):
@@ -218,11 +218,10 @@ def train_agent():
             break
 
         print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}, Epsilon: {agent.epsilon:.2f}')
-
         episode += 1
 
     # Save model weights
-    torch.save(agent.policy_net.state_dict(), 'model_v2.pth')
+    torch.save(agent.policy_net.state_dict(), 'model.pth')
     
     return agent
 
