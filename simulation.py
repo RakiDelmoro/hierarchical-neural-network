@@ -72,14 +72,14 @@ class CartPoleSimulator:
 
     def calculate_mouse_force(self, mouse_pos):
         mouse_x, _ = mouse_pos
-        
+
         # Calculate distance from control circle center to mouse
         dx = mouse_x - self.control_center_x
         distance = math.sqrt(dx * dx)
-        
+
         if distance <= CONTROL_CIRCLE_RADIUS:
             return 0.0  # No force if mouse is inside control circle
-            
+
         # Normalize distance to maximum force
         force = (dx / MAX_DISTANCE) * FORCE_MAGNITUDE
         # Clamp force to maximum magnitude
@@ -107,7 +107,7 @@ class CartPoleSimulator:
     def update_physics(self):
         # Get force from input
         force = self.handle_input()
-    
+
         # Current state
         cart_position, cart_velocity, pole_angle, pole_angular_velocity = self.state
 
@@ -131,7 +131,7 @@ class CartPoleSimulator:
             cart_velocity = 0
 
         self.state = [cart_position, cart_velocity, pole_angle, pole_angular_velocity]
-        
+
         return force
 
     def draw(self, force):
@@ -140,43 +140,43 @@ class CartPoleSimulator:
         # Convert state to screen coordinates
         cart_x = SCREEN_WIDTH/2 + self.state[0] * SCALE
         cart_y = SCREEN_HEIGHT/2
-        
+
         # Draw cart and pole
         pygame.draw.rect(self.screen, BLACK, 
                         [cart_x - CART_WIDTH/2, cart_y - CART_HEIGHT/2, 
                          CART_WIDTH, CART_HEIGHT])
-        
+
         pole_end_x = cart_x + math.sin(self.state[2]) * POLE_LENGTH
         pole_end_y = cart_y - math.cos(self.state[2]) * POLE_LENGTH
         pygame.draw.line(self.screen, RED, (cart_x, cart_y), 
                         (pole_end_x, pole_end_y), 6)
-        
+
         # Draw ground line
         pygame.draw.line(self.screen, BLACK, (0, SCREEN_HEIGHT/2 + CART_HEIGHT/2),
                         (SCREEN_WIDTH, SCREEN_HEIGHT/2 + CART_HEIGHT/2), 2)
-        
+
         # Draw control circle and zone
         pygame.draw.circle(self.screen, GRAY, (self.control_center_x, self.control_center_y), 
                          CONTROL_ZONE_RADIUS, 1)  # Control zone
         pygame.draw.circle(self.screen, BLUE, (self.control_center_x, self.control_center_y), 
                          CONTROL_CIRCLE_RADIUS)  # Control circle
-        
+
         # Draw mouse line when force is being applied
         # if abs(force) > 0:
         #     mouse_pos = pygame.mouse.get_pos()
         #     pygame.draw.line(self.screen, RED, 
         #                    (self.control_center_x, self.control_center_y), 
         #                    mouse_pos, 2)
-        
+
         # Draw info text
         angle_text = self.font.render(f'Angle: {math.degrees(self.state[2]):.1f}°', True, BLUE)
         position_text = self.font.render(f'Position: {self.state[0]:.2f}m', True, BLUE)
         force_text = self.font.render(f'Force: {force:.1f}N', True, BLUE)
-        
+
         self.screen.blit(angle_text, (10, 10))
         self.screen.blit(position_text, (10, 50))
         self.screen.blit(force_text, (10, 90))
-        
+
         pygame.display.flip()
 
     def run(self):
@@ -185,7 +185,7 @@ class CartPoleSimulator:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-            
+
             force = self.update_physics()
             self.draw(force)
             self.clock.tick(60)
