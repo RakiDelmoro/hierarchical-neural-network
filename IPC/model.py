@@ -37,11 +37,11 @@ def refine_activations(activations, activations_loss, parameters, learning_rate)
         weights = parameters[-each][0].T
         if each == 0:
             # Zero term since we don't have a previous layer in last layer
-            delta_x =  0.5 * (-activations_loss[each] + 0)
+            delta_x =  (0.5 * (-activations_loss[each] + 0))
         else:
             propagated_error = np.matmul(activations_loss[each-1], weights)
             term = tanh(activations[-(each+1)], return_derivative=True) * propagated_error
-            delta_x = 0.5 * (-activations_loss[each] + term)
+            delta_x = (0.5 * (-activations_loss[each] + term))
 
         new_activation = activations[-(each+1)] + delta_x
         new_activations.append(new_activation)
@@ -72,14 +72,16 @@ def forward_pass(input_data, parameters):
     return activations
 
 def calculate_activation_error(forward_activations, label, parameters):
+    loss = np.mean((forward_activations[-1] - label)**2)
     activation_errors = [forward_activations[-1] - label]
 
     reversed_activations = forward_activations[::-1]
     for each in range(len(reversed_activations)-2):
         predicted_activation = tanh(np.matmul(reversed_activations[each], parameters[-(each+1)][0].T))
         error = predicted_activation - reversed_activations[each+1]
+        loss += np.mean(error**2)
         activation_errors.append(error)
-    return activation_errors
+    return loss, activation_errors
 
 def update_connection(activations, activations_error, parameters):
     for each in range(len(parameters)):
@@ -88,15 +90,15 @@ def update_connection(activations, activations_error, parameters):
         activation = activations[each+1]
         activation_error = activations_error[each]
 
-        hebbs_rule = (0.0001 * np.matmul(activation.T, activation_error)) / len(activation)
+        hebbs_rule = (0.0001 * np.matmul(activation.T, activation_error) / activation.shape[0])
         weights -= hebbs_rule
 
 def update_parameters(forward_activations, expected, num_iterations, learning_rate, parameters):
     for i in range(num_iterations):
-        layers_activation_error = calculate_activation_error(forward_activations, expected, parameters)
+        loss, layers_activation_error = calculate_activation_error(forward_activations, expected, parameters)
         predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
         update_connection(predicted_activations_refined, layers_activation_error, parameters)
-        print(f'Iters: {i} Loss: {np.mean((predicted_activations_refined[0] - expected)**2)}\r', end='', flush=True)
+        print(f'Iters: {i} Loss: {loss}\r', end='', flush=True)
 
 def neural_network(size: list):
     parameters = parameters_init(size)
