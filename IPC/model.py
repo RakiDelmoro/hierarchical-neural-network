@@ -52,7 +52,7 @@ def refine_activations(activations, activations_loss, parameters, learning_rate)
             term = deriv_activation * propagated_error
             delta_x =  0.1 * ((-activations_loss[each]) + term)
 
-        new_activation = activations[-(each+1)] - delta_x 
+        new_activation = activations[-(each+1)] + delta_x 
 
         new_activations.append(new_activation)
     new_activations.append(activations[0])
@@ -71,7 +71,7 @@ def forward_pass(input_data, parameters):
 
 def backward_pass(forward_output, label, parameters):
     activations = [label]
-    activation = forward_output
+    activation = label
     for each in range(len(parameters)-1):
         weights = parameters[-(each+1)][0].T                                                                                                                                                                                                                                                                       
         activation = np.matmul(activation, weights)
