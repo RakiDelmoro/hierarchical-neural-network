@@ -73,8 +73,8 @@ def backward_pass(label, parameters):
     activations = [label]
     activation = label
     for each in range(len(parameters)-1):
-        weights = parameters[-(each+1)][0].T                                                                                                                                                                                                                                                                       
-        activation = np.matmul(activation, weights)
+        transposed_weights = parameters[-(each+1)][0].T                                                                                                                                                                                                                                                                       
+        activation = np.matmul(activation, transposed_weights)
         activations.append(activation)
     return activations
 
@@ -101,7 +101,6 @@ def update_connection(activations, activations_error, parameters):
         weights -= hebbs_rule
 
 def update_parameters(forward_activations, layers_activation_error, learning_rate, parameters):
-    # for i in range(num_iterations):
     predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
     update_connection(predicted_activations_refined, layers_activation_error, parameters)
 
