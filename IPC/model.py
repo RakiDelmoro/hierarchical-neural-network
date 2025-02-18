@@ -144,3 +144,7 @@ def neural_network(size: list):
         return np.mean(np.array(accuracy)).item()
 
     return train_runner, test_runner
+
+
+# This Training run only achieve 85% accuracy suggest that the IPC is not implemented correctly.
+
