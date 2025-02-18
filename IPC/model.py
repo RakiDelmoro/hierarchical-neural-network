@@ -43,8 +43,10 @@ def parameters_init(network_architecture: list):
 def refine_activations(activations, activations_loss, parameters, learning_rate):
     new_activations = []
     for each in range(len(activations_loss)):
+        # Actually we don't need to refine output activation since this activation will change or closer to expected if we correctly update the weights
+        # Connecting H2 to Output
         if each == 0:
-            delta_x = 0.5 * (-activations_loss[each])
+            delta_x = 0.01 * (-activations_loss[each])
         else:
             weights = parameters[-(each)][0].T
             propagated_error = np.matmul(activations_loss[each-1], weights)
@@ -74,11 +76,11 @@ def backward_pass(label, parameters):
     activation = label
     for each in range(len(parameters)-1):
         transposed_weights = parameters[-(each+1)][0].T                                                                                                                                                                                                                                                                       
-        activation = np.matmul(activation, transposed_weights)
+        activation = relu(np.matmul(activation, transposed_weights))
         activations.append(activation)
     return activations
 
-def calculate_activation_error(forward_activations, backward_activations):
+def calculate_activations_errors(forward_activations, backward_activations):
     loss = 0.0
     activations_errors = []
     for each in range(len(backward_activations)):
@@ -87,7 +89,7 @@ def calculate_activation_error(forward_activations, backward_activations):
         activation_error = predicted_activation - actual_activation
         activations_errors.append(activation_error)
         # Enegy for a given layer
-        loss += np.mean(activation_error**2)
+        loss += np.mean((activation_error**2))
     return loss, activations_errors
 
 def update_connection(activations, activations_error, parameters):
@@ -97,12 +99,13 @@ def update_connection(activations, activations_error, parameters):
         activation = activations[-(each+2)]        
         activation_error = activations_error[each]
 
-        hebbs_rule = (0.001 * np.matmul(activation.T, activation_error) / activation.shape[0])
+        hebbs_rule = (0.0001 * np.matmul(activation.T, activation_error) / activation.shape[0])
         weights -= hebbs_rule
 
 def update_parameters(forward_activations, layers_activation_error, learning_rate, parameters):
-    predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
-    update_connection(predicted_activations_refined, layers_activation_error, parameters)
+    for _ in range(20):
+        predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
+        update_connection(predicted_activations_refined, layers_activation_error, parameters)
 
 def neural_network(size: list):
     parameters = parameters_init(size)
@@ -111,8 +114,8 @@ def neural_network(size: list):
         losses = []
         for input_image, label in dataloader:
             forward_activations = forward_pass(input_image, parameters)
-            backward_activations = backward_pass(forward_activations[-1], label, parameters)
-            total_activation_error, activations_errors = calculate_activation_error(forward_activations, backward_activations)
+            backward_activations = backward_pass(label, parameters)
+            total_activation_error, activations_errors = calculate_activations_errors(forward_activations, backward_activations)
             update_parameters(forward_activations, activations_errors, 0.1, parameters)
             loss = np.mean((forward_activations[-1] - label)**2)
             losses.append(loss)
