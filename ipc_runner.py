@@ -1,6 +1,6 @@
 import gzip
 import pickle
-from IPC.model import neural_network
+from IPC.model_v2 import neural_network
 from IPC.utils import image_data_batching
 
 
@@ -12,9 +12,9 @@ def runner():
     assert test_images.shape[0] == test_labels.shape[0]
     assert train_images.shape[1] == test_images.shape[1] == IMAGE_HEIGHT*IMAGE_WIDTH
     
-    train_runner, test_runner = neural_network([784, 600, 600, 10])
+    train_runner, test_runner = neural_network([784, 2000, 2000, 10])
 
-    for i in range(100):
+    for i in range(1000):
         training_loader = image_data_batching(train_images, train_labels, batch_size=2098, shuffle=True)
         test_loader = image_data_batching(test_images, test_labels, batch_size=2098, shuffle=True)
         loss = train_runner(training_loader)
