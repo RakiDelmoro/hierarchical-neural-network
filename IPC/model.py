@@ -46,7 +46,7 @@ def refine_activations(activations, activations_loss, parameters, learning_rate)
         # Actually we don't need to refine output activation since this activation will change or closer to expected if we correctly update the weights
         # Connecting H2 to Output
         if each == 0:
-            delta_x = 0.01 * (-activations_loss[each])
+            delta_x = 0.5 * (-activations_loss[each])
         else:
             weights = parameters[-(each)][0].T
             propagated_error = np.matmul(activations_loss[each-1], weights)
@@ -54,7 +54,7 @@ def refine_activations(activations, activations_loss, parameters, learning_rate)
             term = deriv_activation * propagated_error
             delta_x =  0.5 * ((-activations_loss[each]) + term)
 
-        new_activation = activations[-(each+1)] + delta_x 
+        new_activation = activations[-(each+1)] - delta_x 
 
         new_activations.append(new_activation)
     new_activations.append(activations[0])
@@ -86,7 +86,7 @@ def calculate_activations_errors(forward_activations, backward_activations):
     for each in range(len(backward_activations)):
         predicted_activation = forward_activations[-(each+1)]
         actual_activation = backward_activations[each]
-        activation_error = predicted_activation - actual_activation
+        activation_error = 2 * (predicted_activation - actual_activation)
         activations_errors.append(activation_error)
         # Enegy for a given layer
         loss += np.mean((activation_error**2))
@@ -103,9 +103,9 @@ def update_connection(activations, activations_error, parameters):
         weights -= hebbs_rule
 
 def update_parameters(forward_activations, layers_activation_error, learning_rate, parameters):
-    for _ in range(20):
-        predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
-        update_connection(predicted_activations_refined, layers_activation_error, parameters)
+    # for _ in range(20):
+    predicted_activations_refined = refine_activations(forward_activations, layers_activation_error, parameters, learning_rate)
+    update_connection(predicted_activations_refined, layers_activation_error, parameters)
 
 def neural_network(size: list):
     parameters = parameters_init(size)
@@ -145,6 +145,4 @@ def neural_network(size: list):
 
     return train_runner, test_runner
 
-
-# This Training run only achieve 85% accuracy suggest that the IPC is not implemented correctly.
-
+# This Training run only achieve 85% accuracy suggest that the IPC is not implemented correctly
