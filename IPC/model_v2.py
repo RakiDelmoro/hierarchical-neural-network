@@ -68,7 +68,7 @@ def forward_pass(input_data, parameters):
         pre_activation = np.matmul(activation, weights)
         activation = relu(pre_activation) if not last_layer else softmax(pre_activation)
         activations.append(activation)
-    return activations
+    return activations, activations
 
 def calculate_error_neurons(forward_activation, backward_activation, parameters):
     activations_errors = []
@@ -84,37 +84,56 @@ def update_connection(static_activations, errors, parameters):
 
         pre_synaptic = static_activations[-(each+2)]
         # post_synaptic = static_activations[-(each+1)]
-        activation_error = errors[each]
+        activation_error = errors[-(each+1)]
 
-        hebbs_rule = (0.00005 * np.matmul(pre_synaptic.T, activation_error) / pre_synaptic.shape[0])
-        weights -= hebbs_rule
+        hebbs_rule = (0.00005 * np.matmul(pre_synaptic.T, activation_error)) / pre_synaptic.shape[0]
+        weights += hebbs_rule
 
 def inference_step(network_activations, errors, parameters):
+    refined_activations = []
     for each in range(len(errors)):
         if each == 0:
-            network_activations[-(each+1)] -= 0.5 * (-errors[each])
+            refined_activation = network_activations[-(each+1)] - 0.5 * (-errors[each])
         else:
             propagated_error = np.matmul(errors[each-1], parameters[-(each)][0].T)
             deriv_activation = relu(network_activations[-(each+1)], return_derivative=True)
-            network_activations[-(each+1)] -= 0.5 * ((-errors[each]) + (deriv_activation * propagated_error))
+            refined_activation = network_activations[-(each+1)] - 0.5 * ((-errors[each]) + (deriv_activation * propagated_error))
 
-def update_parameters(forward_activations, backward_activations, parameters, learning_rate):
-    # for _ in range(2):
+        refined_activations.append(refined_activation)
+    refined_activations.append(network_activations[0])
+    return refined_activations[::-1]
+
+def calculate_activation_dissimilarity(forward_activations, refined_activations):
+    dissimilarities = []
+    for each in range(len(refined_activations)):
+        f_activation = forward_activations[each]
+        r_activation = refined_activations[each]
+        disimilarity = f_activation - r_activation
+        dissimilarities.append(disimilarity)
+    return dissimilarities
+
+def update_parameters(forward_activations, label, parameters, learning_rate):
+    # Num iteration to refine internal activations
+    for _ in range(5):
+        activations_errors = backward_pass(forward_activations, label, parameters)
         # Refined network activations
-    errors = calculate_error_neurons(forward_activations, backward_activations, parameters)
-    inference_step(forward_activations, errors, parameters)
-    update_connection(forward_activations, errors, parameters)
+        refined_activations = inference_step(forward_activations, activations_errors, parameters)
+        # x(l) - u(l)
+        dissimilarities = calculate_activation_dissimilarity(refined_activations, refined_activations)
+        update_connection(forward_activations, dissimilarities, parameters)
+        forward_activations = refined_activations
 
-def backward_pass(network_output, label, parameters):
-    activations = [label]
-    activation = network_output
+def backward_pass(network_activations, label, parameters):
+    activations_errors = []
+    error = network_activations[-1] - label
+    activations_errors.append(error)
+
     for each in range(len(parameters)-1):
         weights = parameters[-(each+1)][0].T
-        pre_activation = np.matmul(activation, weights)
-        activation = relu(pre_activation)
-        activations.append(activation)
-
-    return activations
+        pre_activity_error = np.matmul(error, weights)
+        error = pre_activity_error * relu(network_activations[-(each+2)], return_derivative=True)
+        activations_errors.append(error)
+    return activations_errors
 
 def ipc_neural_network(size: list):
     parameters = parameters_init(size)
@@ -122,13 +141,10 @@ def ipc_neural_network(size: list):
     def train_runner(dataloader):
         losses = []
         for input_image, label in dataloader:
-            # Bottom-Up Predictions
-            bottom_to_up_activations = forward_pass(input_image, parameters)
-            up_to_bottom_activations = backward_pass(bottom_to_up_activations[-1], label, parameters)
-            update_parameters(bottom_to_up_activations, up_to_bottom_activations, parameters, 0.01)
-            # CrossEntropy loss
-            loss = sum(np.mean((bottom_to_up_activations[-1] - label)**2, axis=1))
-            losses.append(loss)
+            # Up-Bottom Predictions
+            activations_guess, activations_refined = forward_pass(input_image, parameters)
+            update_parameters(activations_guess, label, parameters, 0.01)
+            losses.append(1.0)
 
         return np.mean(np.array(losses))
 
@@ -137,7 +153,7 @@ def ipc_neural_network(size: list):
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = forward_pass(batched_image, parameters)
+            neurons_activations = forward_pass(batched_image, parameters)[0]
             batch_accuracy = (neurons_activations[-1].argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
                 model_prediction = neurons_activations[-1][each].argmax()
