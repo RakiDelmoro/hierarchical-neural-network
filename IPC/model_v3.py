@@ -44,66 +44,68 @@ def network_output_activation(input_data):
 
     return exp_data / sum_exp_data
 
-def forward_pass(input_data, parameters):
-    activations = [input_data]
-    activation = input_data
-    for each in range(len(parameters)):
-        last_layer = each == len(parameters)-1
-        weights = parameters[each][0]
-        pre_activation = np.matmul(activation, weights)
-        activation = intermediate_activation(pre_activation) if not last_layer else pre_activation
-        activations.append(activation)
-
-    return activations
-
-def backward_pass(network_output, parameters):
-    activations = []
-    predicted_activation = network_output
+def forward_pass(activations, parameters):
+    predicted_activations = []
+    activations_error = []
     for each in range(len(parameters)):
         weights = parameters[each][0]
-        predicted_activation = intermediate_activation(np.matmul(predicted_activation, weights))
-        activations.append(predicted_activation)
-    
-    return activations
+        current_activation = activations[each+1]
 
-def calculate_activation_error(label, forward_activations, backward_activations):
-    activations_errors = []
-    for each in range(len(forward_activations)-1):
-        # Difference between the network output and expected
-        if each == 0:
-            activation_error = forward_activations[-1] - label
+        if each != 0:
+            pre_activation = np.matmul(current_activation, weights.T)
+            predicted = intermediate_activation(pre_activation)
         else:
-            activation_error = forward_activations[-(each+1)] - backward_activations[each-1]
+            pre_activation = np.matmul(current_activation, weights.T)
+            predicted = network_output_activation(pre_activation)
 
-        activations_errors.append(activation_error)
+        error = predicted - activations[each]       
+        
+        predicted_activations.append(predicted)
+        activations_error.append(error)
 
-    return activations_errors
+    return predicted_activations, activations_error
 
 def update_activations(activations, activations_error, parameters):
-    for each in range(len(activations)-1):
-        if each == 0:
-            activations[-(each+1)] += 0.5 * -(activations_error[each])
-        else:
-            weights = parameters[-(each)][0].T
-            activations[-(each+1)] += 0.5 * -(activations_error[each]) + intermediate_activation(activations[-(each+1)], True) * np.matmul(activations_error[each-1], weights)
+    for each in range(1, len(activations)-1):
+        weights = parameters[each-1][0]
+        previous_error = activations_error[each-1]
+        
+        propagated_error = np.matmul(previous_error, weights)        
+        derivative_activation = intermediate_activation(activations[each], return_derivative=True)
+        current_error = activations_error[each]
+
+        activations[each] -= 0.9 * ((-current_error) + (derivative_activation * propagated_error))
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
-        weights = parameters[-(each+1)][0]
+        weights = parameters[each][0]
         
-        pre_activation = activations[-(each+2)]
+        pre_activation = activations[each+1]
         error = activations_error[each]
 
-        weights -= 0.00005 * (np.matmul(pre_activation.T, error) / pre_activation.shape[0])
+        weights -= 0.0001 * (np.matmul(error.T, pre_activation) / pre_activation.shape[0])
 
-def update_parameters(forward_activations, label, parameters, feedback_params):
-    for _ in range(5):
-        
-        backward_activations = backward_pass(label, feedback_params)
-        activations_error = calculate_activation_error(label, forward_activations, backward_activations)
+def initial_activations(network_architecture, input_image, expected_output=None):
+    activations = []
+    batch_size = input_image.shape[0]
+    for size in network_architecture:
+        activation = np.zeros(shape=(batch_size, size), dtype=np.float32)
+        activations.append(activation)
+    
+    if expected_output is not None:
+        activations[0] = expected_output 
 
-        update_activations(forward_activations, activations_error, parameters)
-        update_weights(forward_activations, activations_error, parameters)
+    activations[-1] = input_image
+
+    return activations
+
+def predict(input_image, parameters, size):
+    activations = initial_activations(size, input_image)
+    for _ in range(10):
+        predicted, activations_error = forward_pass(activations, parameters)
+        update_activations(activations, activations_error, parameters)
+
+    return predicted[0]
 
 def ipc_neural_network_v3(size: list):
     parameters = initialize_network_layers(size)
@@ -113,15 +115,20 @@ def ipc_neural_network_v3(size: list):
 
     def train_runner(dataloader):
         for input_image, label in dataloader:
-            forward_activations = forward_pass(input_image, parameters)
-            update_parameters(forward_activations, label, parameters, feedback_parameters)
+            initial_neurons_activations = initial_activations(size, input_image, label)
+            # Num iteration 
+            for _ in range(10):
+                predicted_activations, activations_error = forward_pass(initial_neurons_activations, parameters)
+
+                update_activations(initial_neurons_activations, activations_error, parameters)
+                update_weights(initial_neurons_activations, activations_error, parameters)
 
     def test_runner(dataloader):
         accuracy = []
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = forward_pass(batched_image, parameters)[-1]
+            neurons_activations = predict(batched_image, parameters, size)
             batch_accuracy = (neurons_activations[-1].argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
                 model_prediction = neurons_activations[each].argmax()
