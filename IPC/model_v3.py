@@ -54,16 +54,16 @@ def forward_pass(activations, label, parameters):
 
         if layer_idx == last_layer_idx:
             pre_activation = np.matmul(current_activation, weights)
-            # Use softmax activation 
             predicted = network_output_activation(pre_activation)
             # Output layer calculate error between the target label
-            error = predicted - label  
+            error = label - predicted 
         else:
             pre_activation = np.matmul(current_activation, weights)
             # Use ReLU activation
             predicted = intermediate_activation(pre_activation)
+
             # Calulate the error between the predicted activation and initial activation
-            error = predicted - activations[layer_idx+1]
+            error = activations[layer_idx+1] - predicted
     
         activations_error.append(error)
 
@@ -73,9 +73,10 @@ def update_activations(activations, activations_error, parameters):
     # Start with 1 layer activation index since the 0 idx is the image and we don't need to update that.
     for layer_idx in range(1, len(activations)):
         last_layer_idx = len(activations)-1
+
         if layer_idx == last_layer_idx:
-            current_error = -activations_error[-1]
-            activations[layer_idx] += 0.5 * current_error
+            current_error = -( 2 * activations_error[-1])
+            activations[layer_idx] += (0.5 * current_error) / 2098
             activations[layer_idx] = network_output_activation(activations[layer_idx])
         else:
             weights = parameters[layer_idx][0].T
@@ -83,19 +84,23 @@ def update_activations(activations, activations_error, parameters):
         
             propagated_error = np.matmul(previous_error, weights)        
             derivative_activation = intermediate_activation(activations[layer_idx], return_derivative=True)
-            current_error = activations_error[layer_idx-1]
+            current_error = -(2 * activations_error[layer_idx-1])
 
-            activations[layer_idx] += 0.5 * (-current_error + (derivative_activation * propagated_error))
+            activations[layer_idx] += 0.5 * (current_error + (derivative_activation * propagated_error)) / 2098
             activations[layer_idx] = intermediate_activation(activations[layer_idx])
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         
+        # if activations[-(each+2)].shape[1] != 784:
+        #     pre_activation = intermediate_activation(activations[-(each+2)])
+        # else:
         pre_activation = activations[-(each+2)]
+
         error = activations_error[-(each+1)]
         nudge = np.matmul(error.T, pre_activation).T
-        weights -= 0.001 * nudge / pre_activation.shape[0]
+        weights += 0.0001 * (nudge / pre_activation.shape[0])
 
 def initial_activations(network_architecture, input_image):
     activations = []
@@ -109,9 +114,9 @@ def initial_activations(network_architecture, input_image):
 
     return activations
 
-def predict(input_image, parameters):
+def forward_in_network(input_image, parameters):
     activation = input_image
-
+    activations = []
     for idx in range(len(parameters)):
         weights = parameters[idx][0]
         last_layer_idx = len(parameters)-1
@@ -123,7 +128,29 @@ def predict(input_image, parameters):
             pre_activation = np.matmul(activation, weights)
             activation = intermediate_activation(pre_activation)
 
-    return activation
+        activations.append(activation)
+
+    return activations
+
+def calculate_activation_error(initial_activations, predicted_activations):
+    activations_error = []
+
+    for each in range(len(predicted_activations)):
+        error = initial_activations[each+1] - predicted_activations[each]
+        activations_error.append(error)
+
+    return activations_error
+
+def predict(input_image, parameters, size):
+    activations = initial_activations(size, input_image)
+
+    for _ in range(10):
+        predicted_activations = forward_in_network(input_image, parameters)
+        activations_errors = calculate_activation_error(activations, predicted_activations)
+
+        update_activations(activations, activations_errors, parameters)
+
+    return activations[-1]
 
 def ipc_neural_network_v3(size: list):
     parameters = initialize_network_layers(size)
@@ -133,7 +160,7 @@ def ipc_neural_network_v3(size: list):
         for input_image, label in dataloader:
             init_activations = initial_activations(size, input_image)
             loss = 0.0
-            for _ in range(5):
+            for _ in range(10):
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = forward_pass(init_activations, label, parameters)
 
@@ -157,7 +184,7 @@ def ipc_neural_network_v3(size: list):
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = predict(batched_image, parameters)
+            neurons_activations = predict(batched_image, parameters, size)
             batch_accuracy = (neurons_activations[-1].argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
                 model_prediction = neurons_activations[each].argmax()
