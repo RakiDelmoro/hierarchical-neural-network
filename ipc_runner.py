@@ -1,6 +1,7 @@
 import gzip
 import pickle
 from IPC.model_v2 import ipc_neural_network
+from IPC.model_v3 import ipc_neural_network_v3
 from Backprop.model import backprop_neural_network
 from IPC.utils import image_data_batching
 
@@ -15,16 +16,25 @@ def runner():
     
     ipc_train_runner, ipc_test_runner = ipc_neural_network([784, 256, 256, 10])
     backprop_train_runner, backprop_test_runner = backprop_neural_network([784, 256, 256, 10])
+    ipc_v3_train, ipc_v3_test = ipc_neural_network_v3([784, 256, 256, 10])
 
-    # IPC Runner
+    # IPC V3 Runner
     for i in range(3000):
         training_loader = image_data_batching(train_images, train_labels, batch_size=2098, shuffle=True)
         test_loader = image_data_batching(test_images, test_labels, batch_size=2098, shuffle=True)
-        loss = ipc_train_runner(training_loader)
-        accuracy = ipc_test_runner(test_loader)
-        print(f'EPOCH: {i+1} Loss: {loss} Accuracy: {accuracy}')
+        loss = ipc_v3_train(training_loader)
+        accuracy = ipc_v3_test(test_loader)
+        print(f'EPOCH: {i+1} LOSS: {loss} Accuracy: {accuracy}')
 
-    # # Backprop Runner 
+    # IPC Runner
+    # for i in range(3000):
+    #     training_loader = image_data_batching(train_images, train_labels, batch_size=2098, shuffle=True)
+    #     test_loader = image_data_batching(test_images, test_labels, batch_size=2098, shuffle=True)
+    #     loss = ipc_train_runner(training_loader)
+    #     accuracy = ipc_test_runner(test_loader)
+    #     print(f'EPOCH: {i+1} Loss: {loss} Accuracy: {accuracy}')
+
+    # Backprop Runner 
     # for i in range(3000):
     #     training_loader = image_data_batching(train_images, train_labels, batch_size=2098, shuffle=True)
     #     test_loader = image_data_batching(test_images, test_labels, batch_size=2098, shuffle=True)
