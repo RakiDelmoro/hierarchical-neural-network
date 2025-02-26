@@ -176,7 +176,7 @@ def ipc_neural_network_v3(size: list):
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = forward_pass(batched_image, size, parameters)[-1]
+            neurons_activations = forward_pass(batched_image, parameters)[-1]
             batch_accuracy = (neurons_activations.argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
                 model_prediction = neurons_activations[each].argmax()
