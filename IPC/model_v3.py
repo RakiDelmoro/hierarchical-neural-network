@@ -104,7 +104,7 @@ def update_activations(activations, activations_error, parameters):
 
         if layer_idx == last_layer_idx:
             # Derivative of Mean-Squared Error
-            current_error = -(2 * activations_error[-1])
+            current_error = -activations_error[-1]
             activations[layer_idx] += (0.5 * current_error)
             activations[layer_idx] = network_output_activation(activations[layer_idx])
         else:
@@ -114,7 +114,7 @@ def update_activations(activations, activations_error, parameters):
             propagated_error = np.matmul(previous_error, weights)        
             backprop_term = intermediate_activation(activations[layer_idx], return_derivative=True) * propagated_error
             # Derivative of Mean-Squared Error
-            current_error = -(2 * activations_error[layer_idx-1])
+            current_error = -activations_error[layer_idx-1]
 
             activations[layer_idx] += 0.5 * (current_error + backprop_term)
             activations[layer_idx] = intermediate_activation(activations[layer_idx])
