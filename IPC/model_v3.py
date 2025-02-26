@@ -58,7 +58,7 @@ def forward_pass(activations, label, parameters):
             # Output layer calculate error between the target label
             error = label - predicted 
         else:
-            pre_activation = np.matmul(current_activation, weights)
+            pre_activation = np.matmul(intermediate_activation(current_activation), weights)
             # Use ReLU activation
             predicted = intermediate_activation(pre_activation)
 
@@ -75,30 +75,27 @@ def update_activations(activations, activations_error, parameters):
         last_layer_idx = len(activations)-1
 
         if layer_idx == last_layer_idx:
-            current_error = -( 2 * activations_error[-1])
-            activations[layer_idx] += (0.5 * current_error) / 2098
-            activations[layer_idx] = network_output_activation(activations[layer_idx])
+            current_error = -(activations_error[-1])
+            activations[layer_idx] -= (0.5 * current_error)
+            # activations[layer_idx] = network_output_activation(activations[layer_idx])
         else:
             weights = parameters[layer_idx][0].T
             previous_error = activations_error[layer_idx]
         
             propagated_error = np.matmul(previous_error, weights)        
             derivative_activation = intermediate_activation(activations[layer_idx], return_derivative=True)
-            current_error = -(2 * activations_error[layer_idx-1])
+            current_error = -(activations_error[layer_idx-1])
 
-            activations[layer_idx] += 0.5 * (current_error + (derivative_activation * propagated_error)) / 2098
-            activations[layer_idx] = intermediate_activation(activations[layer_idx])
+            activations[layer_idx] -= 0.5 * (current_error + (derivative_activation * propagated_error))
+            # activations[layer_idx] = intermediate_activation(activations[layer_idx])
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         
-        # if activations[-(each+2)].shape[1] != 784:
-        #     pre_activation = intermediate_activation(activations[-(each+2)])
-        # else:
         pre_activation = activations[-(each+2)]
-
         error = activations_error[-(each+1)]
+
         nudge = np.matmul(error.T, pre_activation).T
         weights += 0.0001 * (nudge / pre_activation.shape[0])
 
