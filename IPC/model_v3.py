@@ -27,11 +27,11 @@ def initialize_network_layers(network_architecture):
     return parameters
 
 def intermediate_activation(input_data, return_derivative=False):
-    '''Use ReLU activation for intermediate layers'''
+    '''Use Sigmoid activation for intermediate layers'''
     if return_derivative:
-        return np.where(input_data > 0, 1, 0)
+        return input_data * (1 - input_data)
     else:
-        return np.maximum(0, input_data)
+        return 1 / (1 + np.exp(-input_data))
 
 def network_output_activation(input_data):
     '''Use softmax activation for output layer'''
@@ -44,30 +44,58 @@ def network_output_activation(input_data):
 
     return exp_data / sum_exp_data
 
-def forward_pass(activations, label, parameters):
-    activations_error = []
+def forward_pass_training(activations, parameters):
+    predicted_activations = []
     for layer_idx in range(len(parameters)):
         weights = parameters[layer_idx][0]
-        current_activation = activations[layer_idx]
+        last_layer_idx = len(parameters)-1
+        activation = activations[layer_idx]
 
+        pre_activation = np.matmul(activation, weights)
+
+        if layer_idx != last_layer_idx:
+            predicted = intermediate_activation(pre_activation)
+        else:
+            predicted = network_output_activation(pre_activation)
+
+        predicted_activations.append(predicted)
+
+    return predicted_activations
+
+def forward_pass(input_image, parameters):
+    activation = input_image
+    predicted_activations = []
+    for layer_idx in range(len(parameters)):
+        weights = parameters[layer_idx][0]
         last_layer_idx = len(parameters)-1
 
-        if layer_idx == last_layer_idx:
-            pre_activation = np.matmul(current_activation, weights)
-            predicted = network_output_activation(pre_activation)
-            # Output layer calculate error between the target label
-            error = label - predicted 
-        else:
-            pre_activation = np.matmul(intermediate_activation(current_activation), weights)
-            # Use ReLU activation
-            predicted = intermediate_activation(pre_activation)
+        pre_activation = np.matmul(activation, weights)
 
-            # Calulate the error between the predicted activation and initial activation
-            error = activations[layer_idx+1] - predicted
-    
+        if layer_idx != last_layer_idx:
+            activation = intermediate_activation(pre_activation)
+        else:
+            activation = network_output_activation(pre_activation)
+
+        predicted_activations.append(activation)
+
+    return predicted_activations
+
+def calculate_activation_error(init_activations, predicted_activations, label=None):
+    activations_error = []
+    for each in range(len(predicted_activations)):
+        last_layer_idx = len(predicted_activations)-1
+        if each == last_layer_idx:
+            if label is None:
+                error = init_activations[each+1] - predicted_activations[each]
+            else:
+                error = label - predicted_activations[each]
+        else:
+            error = init_activations[each+1] - predicted_activations[each]
+
         activations_error.append(error)
 
     return activations_error
+
 
 def update_activations(activations, activations_error, parameters):
     # Start with 1 layer activation index since the 0 idx is the image and we don't need to update that.
@@ -75,29 +103,31 @@ def update_activations(activations, activations_error, parameters):
         last_layer_idx = len(activations)-1
 
         if layer_idx == last_layer_idx:
-            current_error = -(activations_error[-1])
-            activations[layer_idx] -= (0.5 * current_error)
-            # activations[layer_idx] = network_output_activation(activations[layer_idx])
+            # Derivative of Mean-Squared Error
+            current_error = -(2 * activations_error[-1])
+            activations[layer_idx] += (0.5 * current_error)
+            activations[layer_idx] = network_output_activation(activations[layer_idx])
         else:
             weights = parameters[layer_idx][0].T
             previous_error = activations_error[layer_idx]
         
             propagated_error = np.matmul(previous_error, weights)        
-            derivative_activation = intermediate_activation(activations[layer_idx], return_derivative=True)
-            current_error = -(activations_error[layer_idx-1])
+            backprop_term = intermediate_activation(activations[layer_idx], return_derivative=True) * propagated_error
+            # Derivative of Mean-Squared Error
+            current_error = -(2 * activations_error[layer_idx-1])
 
-            activations[layer_idx] -= 0.5 * (current_error + (derivative_activation * propagated_error))
-            # activations[layer_idx] = intermediate_activation(activations[layer_idx])
+            activations[layer_idx] += 0.5 * (current_error + backprop_term)
+            activations[layer_idx] = intermediate_activation(activations[layer_idx])
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
-        
+
         pre_activation = activations[-(each+2)]
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(error.T, pre_activation).T
-        weights += 0.0001 * (nudge / pre_activation.shape[0])
+        weights += 0.0001 * (nudge / error.shape[0])
 
 def initial_activations(network_architecture, input_image):
     activations = []
@@ -111,60 +141,25 @@ def initial_activations(network_architecture, input_image):
 
     return activations
 
-def forward_in_network(input_image, parameters):
-    activation = input_image
-    activations = []
-    for idx in range(len(parameters)):
-        weights = parameters[idx][0]
-        last_layer_idx = len(parameters)-1
-
-        if idx == last_layer_idx:
-            pre_activation = np.matmul(activation, weights)
-            activation = network_output_activation(pre_activation)
-        else:
-            pre_activation = np.matmul(activation, weights)
-            activation = intermediate_activation(pre_activation)
-
-        activations.append(activation)
-
-    return activations
-
-def calculate_activation_error(initial_activations, predicted_activations):
-    activations_error = []
-
-    for each in range(len(predicted_activations)):
-        error = initial_activations[each+1] - predicted_activations[each]
-        activations_error.append(error)
-
-    return activations_error
-
-def predict(input_image, parameters, size):
-    activations = initial_activations(size, input_image)
-
-    for _ in range(10):
-        predicted_activations = forward_in_network(input_image, parameters)
-        activations_errors = calculate_activation_error(activations, predicted_activations)
-
-        update_activations(activations, activations_errors, parameters)
-
-    return activations[-1]
-
 def ipc_neural_network_v3(size: list):
     parameters = initialize_network_layers(size)
 
     def train_runner(dataloader):
         each_batch_loss = []
         for input_image, label in dataloader:
-            init_activations = initial_activations(size, input_image)
+            # Initial activations
+            activations = initial_activations(size, input_image)
+            # Predicted_activations
             loss = 0.0
-            for _ in range(10):
+            for _ in range(100):
+                predicted_activations = forward_pass_training(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
-                activations_error = forward_pass(init_activations, label, parameters)
+                activations_error = calculate_activation_error(activations, predicted_activations, label)
 
                 # Update the initial activations. Order of update -> LEFT to RIGHT
-                update_activations(init_activations, activations_error, parameters)
+                update_activations(activations, activations_error, parameters)
                 # Update the network weights to encourge to have the same value as the updated activations
-                update_weights(init_activations, activations_error, parameters)
+                update_weights(activations, activations_error, parameters)
 
                 # Summed total of free energy as stated in the paper sum(|x(l) - u(l)|**2)
                 # This error should minimize 
@@ -181,8 +176,8 @@ def ipc_neural_network_v3(size: list):
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = predict(batched_image, parameters, size)
-            batch_accuracy = (neurons_activations[-1].argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
+            neurons_activations = forward_pass(batched_image, size, parameters)[-1]
+            batch_accuracy = (neurons_activations.argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
                 model_prediction = neurons_activations[each].argmax()
                 if model_prediction == batched_label[each].argmax(axis=-1): correctness.append((model_prediction.item(), batched_label[each].argmax(axis=-1).item()))
