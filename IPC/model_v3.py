@@ -6,6 +6,12 @@ from torch.nn import init
 from torch.nn.init import kaiming_uniform_
 from features import RED, GREEN, RESET
 
+def cross_entropy(expected, model_prediction):
+    epsilon = 1e-10  # Small value to prevent log(0)
+    loss = -np.sum(expected * np.log(model_prediction + epsilon), axis=1)
+
+    return loss
+
 def initialize_layer_connections(input_size, output_size):
     gen_w_matrix = torch.empty(size=(input_size, output_size))
     gen_b_matrix = torch.empty(size=(output_size,))
@@ -62,39 +68,37 @@ def forward_pass(activations, parameters):
 
     return predicted_activations
 
-def calculate_activation_error(activations, predicted_activations, label=None):
+def calculate_activation_error(activations, predicted_activations, expected_output=None):
     activations_error = []
-    total_error = 0.0
     for each in range(len(predicted_activations)):
         last_layer_idx = len(predicted_activations)-1
         if each == last_layer_idx:
-            if label is None:
+            if expected_output is None:
                 error = activations[each+1] - predicted_activations[each]
             else:
-                error = label - predicted_activations[each]
+                error = expected_output - predicted_activations[each]
         else:
             error = activations[each+1] - predicted_activations[each]
 
-        total_error += (np.sum(error**2))
         activations_error.append(error)
-
-    return total_error, activations_error
+    
+    return activations_error
 
 def update_activations(activations, activations_error, parameters):
     # Start with 1 layer activation index since the 0 idx is the image and we don't need to update that.
-    for layer_idx in range(1, len(activations)):
-        last_layer_idx = len(activations)-1
+    for layer_idx in range(len(activations_error)):
+        last_layer_idx = len(activations_error)-1
 
         if layer_idx == last_layer_idx:
-            activations[layer_idx] += (0.5 * -activations_error[-1])
+            activations[-1] += (0.5 * (-activations_error[-1]))
         else:
-            weights = parameters[layer_idx][0].T
-            previous_error = activations_error[layer_idx]
+            weights = parameters[layer_idx+1][0].T
+            previous_error = activations_error[layer_idx+1]
         
             propagated_error = np.matmul(previous_error, weights)        
-            backprop_term = intermediate_activation(activations[layer_idx], return_derivative=True) * propagated_error
+            backprop_term = intermediate_activation(activations[layer_idx+1], return_derivative=True) * propagated_error
 
-            activations[layer_idx] += 0.5 * (-activations_error[layer_idx-1] + backprop_term)
+            activations[layer_idx+1] += (0.5 * (-activations_error[layer_idx] + backprop_term))
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
@@ -104,7 +108,7 @@ def update_weights(activations, activations_error, parameters):
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(error.T, pre_activation).T
-        weights += 0.0001 * (nudge / error.shape[0])
+        weights += 0.01 * (nudge / error.shape[0])
 
 def initial_activations(network_architecture, input_image):
     activations = []
@@ -113,7 +117,7 @@ def initial_activations(network_architecture, input_image):
         activation = np.zeros(shape=(batch_size, size), dtype=np.float32)
         activations.append(activation)
     
-    # All activations are zero expect for the first which is the image
+    # All initialize activations are zero expect for the first index which is our input image
     activations[0] = input_image
 
     return activations
@@ -122,7 +126,7 @@ def predict(input_image, parameters, size):
     activations = initial_activations(size, input_image)
     for _ in range(100):
         predicted_activations = forward_pass(activations, parameters)
-        _, activations_error = calculate_activation_error(activations, predicted_activations)
+        activations_error = calculate_activation_error(activations, predicted_activations)
 
         update_activations(activations, activations_error, parameters)
 
@@ -139,22 +143,20 @@ def ipc_neural_network_v3(size: list):
             # Predicted_activations
             losses = []
             for _ in range(100):
+                # [h1, h2, output]
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
-                _, activations_error = calculate_activation_error(activations, predicted_activations, label)
+                activations_error = calculate_activation_error(activations, predicted_activations, label)
 
-                # Update the initial activations. Order of update -> LEFT to RIGHT
+                # Inference and Learning Phase
                 update_activations(activations, activations_error, parameters)
-                # Update the network weights to encourge to have the same value as the updated activations
                 update_weights(activations, activations_error, parameters)
 
-
-                epsilon = 1e-10  # Small value to prevent log(0)
-                cross_entropy_loss = -np.sum(label * np.log(predicted_activations[-1] + epsilon), axis=1)
-                losses.append(np.mean(cross_entropy_loss))
+                loss = cross_entropy(label, predicted_activations[-1])
+                losses.append(np.mean(loss))
 
             each_batch_loss.append(sum(losses))
-        
+
         return np.mean(np.array(each_batch_loss))
 
     def test_runner(dataloader):
@@ -162,10 +164,10 @@ def ipc_neural_network_v3(size: list):
         correctness = []
         wrongness = []
         for i, (batched_image, batched_label) in enumerate(dataloader):
-            neurons_activations = predict(batched_image, parameters, size)
-            batch_accuracy = (neurons_activations.argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
+            model_output = predict(batched_image, parameters, size)
+            batch_accuracy = (model_output.argmax(axis=-1) == batched_label.argmax(axis=-1)).mean()
             for each in range(len(batched_label)//10):
-                model_prediction = neurons_activations[each].argmax()
+                model_prediction = model_output[each].argmax()
                 if model_prediction == batched_label[each].argmax(axis=-1): correctness.append((model_prediction.item(), batched_label[each].argmax(axis=-1).item()))
                 else: wrongness.append((model_prediction.item(), batched_label[each].argmax(axis=-1).item()))
             print(f'Number of samples: {i+1}\r', end='', flush=True)
