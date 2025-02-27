@@ -90,15 +90,18 @@ def update_activations(activations, activations_error, parameters):
         last_layer_idx = len(activations_error)-1
 
         if layer_idx == last_layer_idx:
-            activations[-1] += (0.5 * (-activations_error[-1]))
+            current_error = -activations_error[-1]
+            activations[-1] += (0.5 * (current_error))
+
         else:
             weights = parameters[layer_idx+1][0].T
             previous_error = activations_error[layer_idx+1]
-        
+
             propagated_error = np.matmul(previous_error, weights)        
             backprop_term = intermediate_activation(activations[layer_idx+1], return_derivative=True) * propagated_error
+            current_error = -activations_error[layer_idx]
 
-            activations[layer_idx+1] += (0.5 * (-activations_error[layer_idx] + backprop_term))
+            activations[layer_idx+1] += (0.5 * (current_error + backprop_term))
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
@@ -116,7 +119,7 @@ def initial_activations(network_architecture, input_image):
     for size in network_architecture:
         activation = np.zeros(shape=(batch_size, size), dtype=np.float32)
         activations.append(activation)
-    
+
     # All initialize activations are zero expect for the first index which is our input image
     activations[0] = input_image
 
