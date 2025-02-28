@@ -93,7 +93,7 @@ def update_activations(activations, activations_error, parameters):
         if layer_idx == last_layer_idx:
             current_error = -activations_error[-1]
 
-            activations[-1] -= (0.5 * current_error)
+            activations[-1] += (0.5 * current_error)
 
         else:
             weights = parameters[layer_idx+1][0].T
@@ -105,7 +105,7 @@ def update_activations(activations, activations_error, parameters):
 
             nudge = (current_error + backprop_term) / current_error.shape[0]
 
-            activations[layer_idx+1] -= (0.5 * nudge)
+            activations[layer_idx+1] += (0.5 * nudge)
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
