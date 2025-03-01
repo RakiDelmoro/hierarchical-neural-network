@@ -7,6 +7,7 @@ from torch.nn.init import kaiming_uniform_
 from features import RED, GREEN, RESET
 
 def cross_entropy(expected, model_prediction):
+
     epsilon = 1e-10  # Small value to prevent log(0)
     loss = -np.sum(expected * np.log(model_prediction + epsilon), axis=1)
 
@@ -61,10 +62,17 @@ def forward_pass(activations, parameters):
 
         activation = activations[layer_idx+1]
 
-        pre_activation = intermediate_activation(activation)
+        if layer_idx == len(parameters)-1:
+            # If image don't have activation function
+            pre_activation = activation
+        else:
+            pre_activation = intermediate_activation(activation)
+
         predicted = np.matmul(pre_activation, weights)
 
         predicted_activations.append(predicted)
+
+    predicted_activations[0] = network_output_activation(predicted_activations[0])
 
     return predicted_activations
 
@@ -72,7 +80,10 @@ def calculate_activation_error(activations, predicted_activations):
     activations_error = []
     for each in range(len(predicted_activations)):
 
+        # if each == 0:
         error = activations[each] - predicted_activations[each]
+        # else:
+            # error = activations[each] - predicted_activations[each]
 
         activations_error.append(error)
 
@@ -86,19 +97,24 @@ def update_activations(activations, activations_error, parameters):
 
         propagate_error = np.matmul(previous_error, weights)
         activation_deriv = intermediate_activation(activations[layer_idx+1], return_derivative=True) * propagate_error
-        current_error = -activations_error[layer_idx+1]
+        current_error = activations_error[layer_idx+1]
 
-        activations[layer_idx+1] += (0.5 * current_error + activation_deriv)
+        activations[layer_idx+1] += 0.1 * (-current_error + activation_deriv)
+        # activations[layer_idx+1] = intermediate_activation(activations[layer_idx+1])
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[each][0]
 
+        # if each == len(parameters)-1:
         pre_activation = activations[each+1]
+        # else:
+            # pre_activation = intermediate_activation(activations[each+1])
+
         error = activations_error[each]
 
         nudge = np.matmul(error.T, pre_activation)
-        weights += 0.001 * (nudge / pre_activation.shape[0])
+        weights += 0.001 * (nudge / error.shape[0])
 
 def initial_activations(network_architecture, input_image, label=None):
     activations = []
@@ -122,7 +138,7 @@ def predict(input_image, parameters, size):
 
         update_activations(activations, activations_error, parameters)
 
-    return network_output_activation(predicted_activations[0])
+    return predicted_activations[0]
 
 def ipc_neural_network_v4(size: list):
     parameters = initialize_network_layers(size)
