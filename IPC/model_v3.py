@@ -119,7 +119,7 @@ def update_weights(activations, activations_error, parameters):
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(error.T, pre_activation).T
-        weights += 0.0001 * (nudge / error.shape[0])
+        weights += 0.00005 * (nudge / error.shape[0])
 
 def initial_activations(network_architecture, input_image, label=None):
     activations = []
@@ -138,7 +138,7 @@ def initial_activations(network_architecture, input_image, label=None):
 
 def predict(input_image, parameters, size):
     activations = initial_activations(size, input_image)
-    for _ in range(10):
+    for _ in range(150):
         predicted_activations = forward_pass(activations, parameters)
         activations_error = calculate_activation_error(activations, predicted_activations)
 
@@ -157,7 +157,7 @@ def ipc_neural_network_v3(size: list):
             # [h1, h2, output]
             # Predicted_activations
             losses = []
-            for _ in range(10):
+            for _ in range(150):
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = calculate_activation_error(activations, predicted_activations, label)
