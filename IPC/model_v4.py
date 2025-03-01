@@ -94,13 +94,19 @@ def update_activations(activations, activations_error, parameters):
 
         weights = parameters[layer_idx][0]
         previous_error = activations[layer_idx]
-
+        # θ(l−1) T · ε(l−1))
         propagate_error = np.matmul(previous_error, weights)
-        activation_deriv = sigmoid_activation(activations[layer_idx+1], return_derivative=True) * propagate_error
+        #f′(x(l))
+        activation_deriv = sigmoid_activation(activations[layer_idx+1], return_derivative=True)        
+        # f′(x(l)) ∗ θ(l−1) T · ε(l−1)),
+        term = activation_deriv * propagate_error
+        # −ε(l)
         current_error = activations_error[layer_idx+1]
 
         # With activation function update
+        #∆x(l) = γ · (−ε(l) + f′(x(l)) ∗ θ(l−1) T · ε(l−1))
         # activations[layer_idx+1] += 0.5 * (-current_error + activation_deriv)
+
         # Without activation function update
         activations[layer_idx+1] += 0.5 * (-current_error + propagate_error)
 
