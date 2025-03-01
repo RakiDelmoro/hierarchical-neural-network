@@ -37,7 +37,7 @@ def initialize_network_layers(network_architecture):
 
     return parameters
 
-def intermediate_activation(input_data, return_derivative=False):
+def sigmoid_activation(input_data, return_derivative=False):
     '''Use Sigmoid activation for intermediate layers'''
     if return_derivative:
         return input_data * (1 - input_data)
@@ -66,7 +66,7 @@ def forward_pass(activations, parameters):
             # If image don't have activation function
             pre_activation = activation
         else:
-            pre_activation = intermediate_activation(activation)
+            pre_activation = sigmoid_activation(activation)
 
         predicted = np.matmul(pre_activation, weights)
 
@@ -96,11 +96,13 @@ def update_activations(activations, activations_error, parameters):
         previous_error = activations[layer_idx]
 
         propagate_error = np.matmul(previous_error, weights)
-        activation_deriv = intermediate_activation(activations[layer_idx+1], return_derivative=True) * propagate_error
+        activation_deriv = sigmoid_activation(activations[layer_idx+1], return_derivative=True) * propagate_error
         current_error = activations_error[layer_idx+1]
 
-        activations[layer_idx+1] += 0.1 * (-current_error + activation_deriv)
-        # activations[layer_idx+1] = intermediate_activation(activations[layer_idx+1])
+        # With activation function update
+        # activations[layer_idx+1] += 0.5 * (-current_error + activation_deriv)
+        # Without activation function update
+        activations[layer_idx+1] += 0.5 * (-current_error + propagate_error)
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
