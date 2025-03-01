@@ -103,9 +103,7 @@ def update_activations(activations, activations_error, parameters):
             backprop_term = intermediate_activation(activations[layer_idx+1], return_derivative=True) * propagated_error
             current_error = -activations_error[layer_idx]
 
-            nudge = (current_error + backprop_term) / current_error.shape[0]
-
-            activations[layer_idx+1] += (0.5 * nudge)
+            activations[layer_idx+1] += 0.5 * (current_error + backprop_term)
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
