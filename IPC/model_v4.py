@@ -38,11 +38,11 @@ def initialize_network_layers(network_architecture):
     return parameters
 
 def sigmoid_activation(input_data, return_derivative=False):
-    '''Use Sigmoid activation for intermediate layers'''
+    s = 1 / (1 + np.exp(-input_data))
     if return_derivative:
-        return input_data * (1 - input_data)
+        return s * (1 - s)  # Computes σ(x) first, then derivative
     else:
-        return 1 / (1 + np.exp(-input_data))
+        return s
 
 def network_output_activation(input_data):
     '''Use softmax activation for output layer'''
@@ -105,10 +105,10 @@ def update_activations(activations, activations_error, parameters):
 
         # With activation function update
         #∆x(l) = γ · (−ε(l) + f′(x(l)) ∗ θ(l−1) T · ε(l−1))
-        # activations[layer_idx+1] += 0.5 * (-current_error + activation_deriv)
+        activations[layer_idx+1] += 0.5 * (-current_error + term)
 
         # Without activation function update
-        activations[layer_idx+1] += 0.5 * (-current_error + propagate_error)
+        # activations[layer_idx+1] += 0.5 * (-current_error + propagate_error)
 
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
@@ -122,7 +122,7 @@ def update_weights(activations, activations_error, parameters):
         error = activations_error[each]
 
         nudge = np.matmul(error.T, pre_activation)
-        weights += 0.001 * (nudge / error.shape[0])
+        weights += 0.0001 * (nudge / error.shape[0])
 
 def initial_activations(network_architecture, input_image, label=None):
     activations = []
@@ -140,7 +140,7 @@ def initial_activations(network_architecture, input_image, label=None):
 
 def predict(input_image, parameters, size):
     activations = initial_activations(size, input_image)
-    for _ in range(10):
+    for _ in range(100):
         predicted_activations = forward_pass(activations, parameters)
         activations_error = calculate_activation_error(activations, predicted_activations)
 
@@ -157,7 +157,7 @@ def ipc_neural_network_v4(size: list):
             # Initial activations
             activations = initial_activations(size, input_image, label)
             losses = []
-            for _ in range(10):
+            for _ in range(100):
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = calculate_activation_error(activations, predicted_activations)
