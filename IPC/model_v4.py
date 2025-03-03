@@ -7,7 +7,6 @@ from torch.nn.init import kaiming_uniform_
 from features import RED, GREEN, RESET
 
 def cross_entropy(expected, model_prediction):
-
     epsilon = 1e-10  # Small value to prevent log(0)
     loss = -np.sum(expected * np.log(model_prediction + epsilon), axis=1)
 
@@ -114,10 +113,7 @@ def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[each][0]
 
-        # if each == len(parameters)-1:
         pre_activation = activations[each+1]
-        # else:
-            # pre_activation = intermediate_activation(activations[each+1])
 
         error = activations_error[each]
 
@@ -166,7 +162,7 @@ def ipc_neural_network_v4(size: list):
                 update_activations(activations, activations_error, parameters)
                 update_weights(activations, activations_error, parameters)
 
-                loss = cross_entropy(label, network_output_activation(predicted_activations[0]))
+                loss = cross_entropy(label, predicted_activations[0])
                 losses.append(np.mean(loss))
 
             each_batch_loss.append(sum(losses))
