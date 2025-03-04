@@ -61,10 +61,11 @@ def forward_pass(activations, parameters):
     predicted_activations = []
     for layer_idx in range(len(parameters)):
         weights = parameters[layer_idx][0]
+        bias = parameters[layer_idx][1]
         last_layer_idx = len(parameters)-1
         activation = activations[layer_idx]
 
-        pre_activation = np.matmul(activation, weights)
+        pre_activation = np.matmul(activation, weights) + bias
 
         if layer_idx != last_layer_idx:
             predicted = relu(pre_activation)
@@ -81,8 +82,6 @@ def calculate_activation_error(current_state, predicted):
     activations_error = []
     for each in range(len(predicted)):
         error = current_state[each+1] - predicted[each]
-        # error = 0.5 * (dissimilarity * dissimilarity)
-
         activations_error.append(error)
 
     return activations_error
@@ -101,12 +100,14 @@ def update_activations(activations, activations_error, parameters):
 def update_weights(activations, activations_error, parameters):
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
+        bias = parameters[-(each+1)][1]
 
         pre_activation = activations[-(each+2)]
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(pre_activation.T, error)
         weights += 0.001 * (nudge / error.shape[0])    
+        bias += 0.001 * (np.sum(error, axis=0) / error.shape[0])
 
 def initial_activations(parameters, input_image, label=None):
     activations = [input_image]
@@ -128,8 +129,9 @@ def predict(input_image, parameters):
     activation = input_image
     for each in range(len(parameters)):
         weights = parameters[each][0]
+        bias = parameters[each][1]
 
-        pre_activation = np.matmul(activation, weights)
+        pre_activation = np.matmul(activation, weights) + bias
         if each != len(parameters)-1:
             activation = relu(pre_activation)
             # activation = pre_activation
