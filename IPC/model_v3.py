@@ -69,9 +69,7 @@ def forward_pass(activations, parameters):
 
         if layer_idx != last_layer_idx:
             predicted = relu(pre_activation)
-            # predicted = pre_activation
         else:
-            # predicted = pre_activation
             predicted = softmax(pre_activation)
 
         predicted_activations.append(predicted)
@@ -87,17 +85,24 @@ def calculate_activation_error(current_state, predicted):
     return activations_error
 
 def update_activations(activations, activations_error, parameters):
+
     for layer_idx in range(len(activations_error)-1):
         weights = parameters[-(layer_idx+1)][0].T
         previous_error = activations_error[-(layer_idx+1)]
 
         propagated_error = np.matmul(previous_error, weights)        
         backprop_term = relu(activations[-(layer_idx+2)], return_derivative=True) * propagated_error
-        current_error = -activations_error[-(layer_idx+2)]
+        current_error = -(activations_error[-(layer_idx+2)])
 
         activations[-(layer_idx+2)] += 0.5 * (current_error + backprop_term)
 
-def update_weights(activations, activations_error, parameters):
+def update_weights(activations, activations_error, parameters, m, v, t):
+    beta1 = 0.9
+    beta2 = 0.999
+    epsilon = 1e-8
+    weight_decay = 1e-5
+    learning_rate = 3e-4
+
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         bias = parameters[-(each+1)][1]
@@ -106,8 +111,45 @@ def update_weights(activations, activations_error, parameters):
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(pre_activation.T, error)
-        weights += 0.001 * (nudge / error.shape[0])    
-        bias += 0.001 * (np.sum(error, axis=0) / error.shape[0])
+        grad_weights = nudge / error.shape[0]
+        grad_bias = np.sum(error, axis=0) / error.shape[0]
+
+        m_weights, m_bias = m[-(each+1)]
+        v_weights, v_bias = v[-(each+1)]
+
+        m_weights = beta1 * m_weights + (1 - beta1) * grad_weights
+        v_weights = beta2 * v_weights + (1 - beta2) * (grad_weights ** 2)
+
+        m_bias = beta1 * m_bias + (1 - beta1) * grad_bias
+        v_bias = beta2 * v_bias + (1 - beta2) * (grad_bias ** 2)
+
+        m[-(each+1)] = (m_weights, m_bias)
+        v[-(each+1)] = (v_weights, v_bias)
+
+        # Bias correction
+        m_hat_weights = m_weights / (1 - beta1**t)
+        v_hat_weights = v_weights / (1 - beta2**t)
+        m_hat_bias = m_bias / (1 - beta1**t)
+        v_hat_bias = v_bias / (1 - beta2**t)
+
+        # Update weights with AdamW (include weight decay)
+        weights += learning_rate * (m_hat_weights / (np.sqrt(v_hat_weights) + epsilon) + weight_decay * weights)
+        # Update bias with Adam (no weight decay)
+        bias += learning_rate * (m_hat_bias / (np.sqrt(v_hat_bias) + epsilon))
+
+        t += 1
+
+def initialize_moments(size):
+    m = []
+    v = []
+    for each in range(len(size)-1):
+        w = np.zeros(shape=(size[each], size[each+1]))
+        b = np.zeros(shape=(size[each+1]))
+
+        m.append([w, b])
+        v.append([w, b])
+
+    return m, v
 
 def initial_activations(parameters, input_image, label=None):
     activations = [input_image]
@@ -142,21 +184,23 @@ def predict(input_image, parameters):
 
 def ipc_neural_network_v3(size: list):
     parameters = initialize_network_layers(size)
+    moments, value = initialize_moments(size)
 
     def train_runner(dataloader):
         each_batch_loss = []
+        t = 1
         for input_image, label in dataloader:
             # Initial activations
             activations = initial_activations(parameters, input_image, label)
             losses = []
-            for _ in range(8):
+            for _ in range(5):
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = calculate_activation_error(activations, predicted_activations)
 
                 # Inference and Learning Phase
                 update_activations(activations, activations_error, parameters)
-                update_weights(activations, activations_error, parameters)
+                update_weights(activations, activations_error, parameters, moments, value, t)
 
                 loss = cross_entropy(label, predicted_activations[-1])
                 losses.append(np.mean(loss))
