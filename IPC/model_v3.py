@@ -156,10 +156,10 @@ def initial_activations(parameters, input_image, label=None):
     activation = input_image
     for each in range(len(parameters)):
         weights = parameters[each][0]
+        bias = parameters[each][1]
 
-        pre_activation = np.matmul(activation, weights)
+        pre_activation = np.matmul(activation, weights) + bias
         activation = relu(pre_activation)
-        # activation = pre_activation
         activations.append(activation)
 
     if label is not None:
@@ -176,7 +176,6 @@ def predict(input_image, parameters):
         pre_activation = np.matmul(activation, weights) + bias
         if each != len(parameters)-1:
             activation = relu(pre_activation)
-            # activation = pre_activation
         else:
             activation = softmax(pre_activation)
 
