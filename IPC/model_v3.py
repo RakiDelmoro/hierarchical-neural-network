@@ -15,12 +15,12 @@ def cross_entropy(expected, model_prediction):
 def initialize_layer_connections(input_size, output_size):
     gen_w_matrix = torch.empty(size=(input_size, output_size))
     gen_b_matrix = torch.empty(size=(output_size,))
-    weights = kaiming_uniform_(gen_w_matrix, a=math.sqrt(5))
-    fan_in, _ = init._calculate_fan_in_and_fan_out(weights)
-    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-    bias = init.uniform_(gen_b_matrix, -bound, bound)
+    weights = kaiming_uniform_(gen_w_matrix, mode='fan_in', nonlinearity='leaky_relu')
 
-    return [np.array(weights), np.array(bias)]
+    # Initialize biases to zero
+    init.zeros_(gen_b_matrix)
+
+    return [np.array(weights), np.array(gen_b_matrix)]
 
 def initialize_network_layers(network_architecture):
     parameters = []
@@ -38,13 +38,13 @@ def relu(input_data, return_derivative=False):
         return np.where(x > 0, 1, 0)
     else:
         return np.maximum(0, input_data)
-
-def intermediate_activation(input_data, return_derivative=False):
-    '''Use Sigmoid activation for intermediate layers'''
+    
+def leaky_relu(input_data, return_derivative=False):
     if return_derivative:
-        return input_data * (1 - input_data)
+        x = np.maximum(input_data * 0.05, input_data)
+        return np.where(x > 0, 1, 0.05 * x)
     else:
-        return 1 / (1 + np.exp(-input_data))
+        return np.maximum(input_data * 0.05, input_data)
 
 def softmax(input_data):
     '''Use softmax activation for output layer'''
@@ -68,7 +68,7 @@ def forward_pass(activations, parameters):
         pre_activation = np.matmul(activation, weights) + bias
 
         if layer_idx != last_layer_idx:
-            predicted = relu(pre_activation)
+            predicted = leaky_relu(pre_activation)
         else:
             predicted = softmax(pre_activation)
 
@@ -84,25 +84,26 @@ def calculate_activation_error(current_state, predicted):
 
     return activations_error
 
-def update_activations(activations, activations_error, parameters):
+def update_activations(activations, activations_error, parameters, lr):
 
     for layer_idx in range(len(activations_error)-1):
         weights = parameters[-(layer_idx+1)][0].T
         previous_error = activations_error[-(layer_idx+1)]
 
         propagated_error = np.matmul(previous_error, weights)        
-        backprop_term = relu(activations[-(layer_idx+2)], return_derivative=True) * propagated_error
+        backprop_term = leaky_relu(activations[-(layer_idx+2)], return_derivative=True) * propagated_error
         current_error = -(activations_error[-(layer_idx+2)])
 
-        activations[-(layer_idx+2)] += 0.5 * (current_error + backprop_term)
+        activations[-(layer_idx+2)] += lr * (current_error + backprop_term)
 
-def update_weights(activations, activations_error, parameters, m, v, t):
+def update_weights(activations, activations_error, parameters, m, v, lr, t):
+    # TODO: Make this function more readable
     beta1 = 0.9
     beta2 = 0.999
     epsilon = 1e-8
     weight_decay = 1e-5
-    learning_rate = 3e-4
 
+    t += 1
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         bias = parameters[-(each+1)][1]
@@ -133,13 +134,14 @@ def update_weights(activations, activations_error, parameters, m, v, t):
         v_hat_bias = v_bias / (1 - beta2**t)
 
         # Update weights with AdamW (include weight decay)
-        weights += learning_rate * (m_hat_weights / (np.sqrt(v_hat_weights) + epsilon) + weight_decay * weights)
+        weights += lr * (m_hat_weights / (np.sqrt(v_hat_weights) + epsilon)) #+ weight_decay * weights)
+        weights += lr * (weight_decay * weights)
+ 
         # Update bias with Adam (no weight decay)
-        bias += learning_rate * (m_hat_bias / (np.sqrt(v_hat_bias) + epsilon))
-
-        t += 1
+        bias += lr * (m_hat_bias / (np.sqrt(v_hat_bias) + epsilon))
 
 def initialize_moments(size):
+    # TODO: make this function more readable
     m = []
     v = []
     for each in range(len(size)-1):
@@ -159,7 +161,7 @@ def initial_activations(parameters, input_image, label=None):
         bias = parameters[each][1]
 
         pre_activation = np.matmul(activation, weights) + bias
-        activation = relu(pre_activation)
+        activation = leaky_relu(pre_activation)
         activations.append(activation)
 
     if label is not None:
@@ -175,31 +177,33 @@ def predict(input_image, parameters):
 
         pre_activation = np.matmul(activation, weights) + bias
         if each != len(parameters)-1:
-            activation = relu(pre_activation)
+            activation = leaky_relu(pre_activation)
         else:
             activation = softmax(pre_activation)
 
     return activation
 
-def ipc_neural_network_v3(size: list):
+def ipc_neural_network_v3(size: list, parameters_lr):
     parameters = initialize_network_layers(size)
-    moments, value = initialize_moments(size)
+    moments, velocity = initialize_moments(size)
 
-    def train_runner(dataloader):
+    def train_runner(dataloader, lr_scheduler, t):
         each_batch_loss = []
-        t = 1
-        for input_image, label in dataloader:
+
+        for i, (input_image, label) in enumerate(dataloader):
             # Initial activations
             activations = initial_activations(parameters, input_image, label)
+            activation_lr = lr_scheduler.step()
+
             losses = []
-            for _ in range(5):
+            for _ in range(8):
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = calculate_activation_error(activations, predicted_activations)
 
                 # Inference and Learning Phase
-                update_activations(activations, activations_error, parameters)
-                update_weights(activations, activations_error, parameters, moments, value, t)
+                update_activations(activations, activations_error, parameters, activation_lr)
+                update_weights(activations, activations_error, parameters, moments, velocity, parameters_lr, t)
 
                 loss = cross_entropy(label, predicted_activations[-1])
                 losses.append(np.mean(loss))
