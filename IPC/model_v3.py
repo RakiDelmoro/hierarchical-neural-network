@@ -5,6 +5,7 @@ import numpy as np
 from torch.nn import init
 from torch.nn.init import kaiming_uniform_
 from features import RED, GREEN, RESET
+from scipy.special import erf
 
 def cross_entropy(expected, model_prediction):
     epsilon = 1e-10  # Small value to prevent log(0)
@@ -15,10 +16,10 @@ def cross_entropy(expected, model_prediction):
 def initialize_layer_connections(input_size, output_size):
     gen_w_matrix = torch.empty(size=(input_size, output_size))
     gen_b_matrix = torch.empty(size=(output_size,))
-    weights = kaiming_uniform_(gen_w_matrix, mode='fan_in', nonlinearity='leaky_relu')
-
-    # Initialize biases to zero
-    init.zeros_(gen_b_matrix)
+    weights = kaiming_uniform_(gen_w_matrix, a=math.sqrt(5))
+    fan_in, _ = init._calculate_fan_in_and_fan_out(gen_w_matrix)
+    bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+    init.uniform_(gen_b_matrix, -bound, bound)
 
     return [np.array(weights), np.array(gen_b_matrix)]
 
@@ -32,12 +33,20 @@ def initialize_network_layers(network_architecture):
 
     return parameters
 
-def relu(input_data, return_derivative=False):
-    if return_derivative:
-        x = np.maximum(0, input_data)
-        return np.where(x > 0, 1, 0)
-    else:
-        return np.maximum(0, input_data)
+# def gelu(x, return_derivative=False):
+#     if return_derivative:
+#         cdf = 0.5 * (1 + erf(x / np.sqrt(2)))  # CDF term
+#         pdf = np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)  # PDF term (Gaussian derivative)
+#         return cdf + x * pdf
+#     else:
+#         return x * 0.5 * (1 + erf(x / np.sqrt(2)))
+
+# def relu(input_data, return_derivative=False):
+#     if return_derivative:
+#         x = np.maximum(0, input_data)
+#         return np.where(x > 0, 1, 0)
+#     else:
+#         return np.maximum(0, input_data)
     
 def leaky_relu(input_data, return_derivative=False):
     if return_derivative:
@@ -101,14 +110,14 @@ def update_weights(activations, activations_error, parameters, m, v, lr, t):
     beta1 = 0.9
     beta2 = 0.999
     epsilon = 1e-8
-    weight_decay = 1e-5
+    weight_decay = 0.0001
 
     t += 1
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         bias = parameters[-(each+1)][1]
 
-        pre_activation = activations[-(each+2)]
+        pre_activation = leaky_relu(activations[-(each+2)])
         error = activations_error[-(each+1)]
 
         nudge = np.matmul(pre_activation.T, error)
@@ -194,6 +203,7 @@ def ipc_neural_network_v3(size: list, parameters_lr):
             # Initial activations
             activations = initial_activations(parameters, input_image, label)
             activation_lr = lr_scheduler.step()
+            # activation_lr = 0.5
 
             losses = []
             for _ in range(8):
