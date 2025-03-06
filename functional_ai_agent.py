@@ -19,8 +19,8 @@ def relu(input_data, return_derivative=False):
         return np.maximum(0, input_data)
     
 def mse_loss(predicted, expected, actions):
-    avg_loss = np.mean((expected - predicted)**2)
-    loss_per_action = 2 * (expected - predicted)
+    avg_loss = np.mean((predicted - expected)**2)
+    loss_per_action = 2 * (predicted - expected)
 
     loss_for_backprop = np.zeros(shape=(expected.shape[0], 3))
     loss_for_backprop[np.arange(expected.shape[0]), actions] = loss_per_action
@@ -116,49 +116,69 @@ def push_to_memory(memories_storage, states, actions, reward, next_state, done):
 def fetch_from_memory(memories_storage, size):
     return random.sample(memories_storage, size)
 
-def neural_network(parameters):
 
-    def forward(input_state):
-        activations = [input_state]
+def forward(input_state, parameters):
+    activations = [input_state]
 
-        activation = input_state
-        for each in range(len(parameters)):
-            weights = parameters[each][0]
-            bias = parameters[each][1]
+    activation = input_state
+    for each in range(len(parameters)):
+        weights = parameters[each][0]
+        bias = parameters[each][1]
 
-            pre_activation = np.matmul(activation, weights) + bias
-            
-            if each == len(parameters)-1:
-                activation = pre_activation
-            else:
-                activation = relu(pre_activation)
+        pre_activation = np.matmul(activation, weights) + bias
+        if each == len(parameters)-1:
+            activation = pre_activation
+        else:
+            activation = relu(pre_activation)
+        activations.append(activation)
 
-            activations.append(activation)
-
-        return activations
+    return activations
 
     return forward
 
-def backpropagation(loss, activations, parameters):
+def calculate_activation_loss(activations, loss, parameters):
+    activation_losses = [loss]
+    for each in range(len(parameters)-1):
+        weights = parameters[-(each+1)][0].T
+
+        propagate_previous_loss = np.matmul(loss, weights)
+        loss = relu(activations[-(each+2)], return_derivative=True) * propagate_previous_loss
+        activation_losses.append(loss)
+
+    return activation_losses
+
+def backpropagation(activation_losses, activations, parameters):
     new_parameters = []
     # Left to Right
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
         bias = parameters[-(each+1)][1]
-        
-        # Propate loss for previous layer to update
-        loss_propagate = np.matmul(loss, weights.T)
-        # Pre activation 
+
+        loss_for_update = activation_losses[each]
         activation = activations[-(each+2)]
         
-        weights - 0.1 * (np.matmul(activation.T, loss) / loss.shape[0])
-        bias - 0.1 * (np.sum(loss, axis=0) / loss.shape[0])
+        grad_weights = np.matmul(activation.T, loss_for_update) / loss_for_update.shape[0]
+        grad_bias = np.sum(loss_for_update, axis=0) / loss_for_update.shape[0]
 
-        loss = loss_propagate * relu(activation)
+        new_weights = weights - (0.001 * grad_weights)
+        new_bias = bias - (0.001 * grad_bias)
 
-        new_parameters.insert(0, [weights, bias])
+        new_parameters.insert(0, [new_weights, new_bias])
 
     return new_parameters
+
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))   
+
+    def sample(self, batch_size):
+        return random.sample(self.buffer, batch_size)
+
+    def __len__(self):
+        return len(self.buffer)
 
 def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_net_parameters):
     # Hyperparameters
@@ -172,21 +192,21 @@ def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_n
     state_size = 4
     action_size = 3
 
-    policy_net = neural_network(policy_net_parameters)
-    target_net = neural_network(target_net_parameters)
-
     def act(state):
         if random.random() < epsilon:
             return random.randrange(action_size)
         
-        state = get_state(state)
-        policy_net_output = policy_net(state)
+        state = np.float32(get_state(state))
+        policy_net_output = forward(state, policy_net_parameters)
 
-        return policy_net_output.argmax().item()
+        return policy_net_output[-1].argmax().item()
     
     def train():
+        nonlocal policy_net_parameters
+        nonlocal epsilon
+
         if len(memory_storage) < batch_size:
-            return
+            return policy_net_parameters, epsilon
 
         batched_state = fetch_from_memory(memory_storage, batch_size)
         states, actions, rewards, next_states, dones = zip(*batched_state)
@@ -197,8 +217,8 @@ def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_n
         next_states = np.float32(next_states)
         dones = np.float32(dones)
 
-        policy_net_activations = policy_net(states)
-        target_net_activations = target_net(next_states)
+        policy_net_activations = forward(states, policy_net_parameters)
+        target_net_activations = forward(next_states, target_net_parameters)
 
         policy_net_action_prob = policy_net_activations[-1][np.arange(batch_size), actions]
         target_net_action_prob = target_net_activations[-1].max(axis=1)
@@ -206,10 +226,13 @@ def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_n
         target_policy_net_output = rewards + (1 - dones) * gamma * target_net_action_prob
 
         avg_loss, loss_for_backprop = mse_loss(policy_net_action_prob, target_policy_net_output, actions)
+        activations_gradients = calculate_activation_loss(policy_net_activations, loss_for_backprop, policy_net_parameters)
 
-        policy_net_parameters = backpropagation(loss_for_backprop, policy_net_activations, policy_net_parameters)
+        policy_net_parameters = backpropagation(activations_gradients, policy_net_activations, policy_net_parameters)
 
         epsilon = max(epsilon_min, epsilon * epsilon_decay)
+
+        return policy_net_parameters, epsilon
 
     return train, act
 
@@ -232,11 +255,12 @@ def agent_runner():
             next_state, reward, done = update_simulation(state, action)
             push_to_memory(agent_memories, state, action, reward, next_state, done)
 
-            train()
+            policy_net_parameters, epsilon = train()
             state = next_state
             score += reward
 
         if episode % 10 == 0:
+            print('Change parameters')
             target_net_parameters = policy_net_parameters
 
         scores.append(score)
@@ -246,7 +270,7 @@ def agent_runner():
             print(f'Environment solved in {episode} episodes!')
             break
 
-        print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f}')
+        print(f'Episode: {episode+1}, Score: {score}, Average Score: {avg_score:.2f} Epsilon: {epsilon}')
         episode += 1
 
 agent_runner()
