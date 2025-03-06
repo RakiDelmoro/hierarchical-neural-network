@@ -202,8 +202,8 @@ def ipc_neural_network_v3(size: list, parameters_lr):
         for i, (input_image, label) in enumerate(dataloader):
             # Initial activations
             activations = initial_activations(parameters, input_image, label)
-            activation_lr = lr_scheduler.step()
-            # activation_lr = 0.5
+            # activation_lr = lr_scheduler.step()
+            activation_lr = 0.1
 
             losses = []
             for _ in range(8):
