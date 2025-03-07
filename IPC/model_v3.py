@@ -190,21 +190,21 @@ def predict(input_image, parameters):
 
     return activation
 
-def ipc_neural_network_v3(size: list, parameters_lr):
+def ipc_neural_network_v3(size: list, parameters_lr, activation_lr, num_iterations):
+    # Model trainable parameters
     parameters = initialize_network_layers(size)
+    # Model moments and velocity for AdamW Optimizer (AdamW more powerful than SGD)
     moments, velocity = initialize_moments(size)
 
-    def train_runner(dataloader, lr_scheduler, t):
+    def train_runner(dataloader, t):
         each_batch_loss = []
 
         for i, (input_image, label) in enumerate(dataloader):
             # Initial activations
             activations = initial_activations(parameters, input_image, label)
-            # activation_lr = lr_scheduler.step()
-            activation_lr = 0.1
 
             losses = []
-            for _ in range(8):
+            for _ in range(num_iterations):
                 predicted_activations = forward_pass(activations, parameters)
                 # Get the network prediction about the activations and calculate the error between the previous activations
                 activations_error = calculate_activation_error(activations, predicted_activations)
@@ -233,6 +233,7 @@ def ipc_neural_network_v3(size: list, parameters_lr):
                 else: wrongness.append((model_prediction.item(), batched_label[each].argmax(axis=-1).item()))
             print(f'Number of samples: {i+1}\r', end='', flush=True)
             accuracy.append(np.mean(batch_accuracy))
+
         random.shuffle(correctness)
         random.shuffle(wrongness)
         print(f'{GREEN}Model Correct Predictions{RESET}')
