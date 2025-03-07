@@ -3,9 +3,8 @@ import torch
 import random
 import numpy as np
 from torch.nn import init
-from torch.nn.init import kaiming_uniform_
 from features import RED, GREEN, RESET
-from scipy.special import erf
+from torch.nn.init import kaiming_uniform_
 
 def cross_entropy(expected, model_prediction):
     epsilon = 1e-10  # Small value to prevent log(0)
@@ -33,21 +32,6 @@ def initialize_network_layers(network_architecture):
 
     return parameters
 
-# def gelu(x, return_derivative=False):
-#     if return_derivative:
-#         cdf = 0.5 * (1 + erf(x / np.sqrt(2)))  # CDF term
-#         pdf = np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)  # PDF term (Gaussian derivative)
-#         return cdf + x * pdf
-#     else:
-#         return x * 0.5 * (1 + erf(x / np.sqrt(2)))
-
-# def relu(input_data, return_derivative=False):
-#     if return_derivative:
-#         x = np.maximum(0, input_data)
-#         return np.where(x > 0, 1, 0)
-#     else:
-#         return np.maximum(0, input_data)
-    
 def leaky_relu(input_data, return_derivative=False):
     if return_derivative:
         x = np.maximum(input_data * 0.05, input_data)
@@ -85,16 +69,15 @@ def get_predicted_activation(activations, parameters):
 
     return predicted_activations
 
-def get_activation_error(current_state, predicted):
+def get_activation_error(prior_activations, predicted_activations):
     activations_error = []
-    for each in range(len(predicted)):
-        error = current_state[each+1] - predicted[each]
+    for each in range(len(predicted_activations)):
+        error = prior_activations[each+1] - predicted_activations[each]
         activations_error.append(error)
 
     return activations_error
 
 def update_prior_activations(activations, activations_error, parameters, lr):
-
     for layer_idx in range(len(activations_error)-1):
         weights = parameters[-(layer_idx+1)][0].T
         previous_error = activations_error[-(layer_idx+1)]
@@ -143,7 +126,7 @@ def update_parameters(activations, activations_error, parameters, m, v, lr, t):
         v_hat_bias = v_bias / (1 - beta2**t)
 
         # Update weights with AdamW (include weight decay)
-        weights += lr * (m_hat_weights / (np.sqrt(v_hat_weights) + epsilon)) #+ weight_decay * weights)
+        weights += lr * (m_hat_weights / (np.sqrt(v_hat_weights) + epsilon))
         weights += lr * (weight_decay * weights)
  
         # Update bias with Adam (no weight decay)
@@ -155,6 +138,7 @@ def initialize_moments(size):
     for each in range(len(size)-1):
         weights = np.zeros(shape=(size[each], size[each+1]))
         bias = np.zeros(shape=(size[each+1]))
+
         moments.append([weights, bias])
         velocities.append([weights, bias])
 
@@ -170,9 +154,9 @@ def forward_pass(parameters, input_image, label=None):
         pre_activation = np.matmul(activation, weights) + bias
         activation = leaky_relu(pre_activation)
         activations.append(activation)
-
-    if label is not None:
-        activations[-1] = label
+    
+    output_layer_idx = len(parameters)
+    if label is not None: activations[output_layer_idx] = label
 
     return activations
 
@@ -201,19 +185,18 @@ def ipc_neural_network_v3(size: list, parameters_lr, activation_lr, num_iteratio
         for input_image, expected_output in dataloader:
             prior_activations = forward_pass(parameters, input_image, expected_output)
 
-            losses = []
+            predicted_error = []
             for _ in range(num_iterations):
                 predicted_activations = get_predicted_activation(prior_activations, parameters)
                 activations_error = get_activation_error(prior_activations, predicted_activations)
 
-                # Inference and Learning Phase
                 update_prior_activations(prior_activations, activations_error, parameters, activation_lr)
                 update_parameters(prior_activations, activations_error, parameters, moments, velocity, parameters_lr, t)
 
                 loss = cross_entropy(expected_output, predicted_activations[-1])
-                losses.append(np.mean(loss))
+                predicted_error.append(np.mean(loss))
 
-            each_batch_loss.append(sum(losses))
+            each_batch_loss.append(sum(predicted_error))
 
         return np.mean(np.array(each_batch_loss))
 
