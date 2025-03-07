@@ -66,7 +66,7 @@ def softmax(input_data):
 
     return exp_data / sum_exp_data
 
-def forward_pass(activations, parameters):
+def get_predicted_activation(activations, parameters):
     predicted_activations = []
     for layer_idx in range(len(parameters)):
         weights = parameters[layer_idx][0]
@@ -85,7 +85,7 @@ def forward_pass(activations, parameters):
 
     return predicted_activations
 
-def calculate_activation_error(current_state, predicted):
+def get_activation_error(current_state, predicted):
     activations_error = []
     for each in range(len(predicted)):
         error = current_state[each+1] - predicted[each]
@@ -93,7 +93,7 @@ def calculate_activation_error(current_state, predicted):
 
     return activations_error
 
-def update_activations(activations, activations_error, parameters, lr):
+def update_prior_activations(activations, activations_error, parameters, lr):
 
     for layer_idx in range(len(activations_error)-1):
         weights = parameters[-(layer_idx+1)][0].T
@@ -105,7 +105,7 @@ def update_activations(activations, activations_error, parameters, lr):
 
         activations[-(layer_idx+2)] += lr * (current_error + backprop_term)
 
-def update_weights(activations, activations_error, parameters, m, v, lr, t):
+def update_parameters(activations, activations_error, parameters, m, v, lr, t):
     # TODO: Make this function more readable
     beta1 = 0.9
     beta2 = 0.999
@@ -160,7 +160,7 @@ def initialize_moments(size):
 
     return moments, velocities
 
-def initial_activations(parameters, input_image, label=None):
+def forward_pass(parameters, input_image, label=None):
     activations = [input_image]
     activation = input_image
     for each in range(len(parameters)):
@@ -198,22 +198,19 @@ def ipc_neural_network_v3(size: list, parameters_lr, activation_lr, num_iteratio
 
     def train_runner(dataloader, t):
         each_batch_loss = []
-
-        for i, (input_image, label) in enumerate(dataloader):
-            # Initial activations
-            activations = initial_activations(parameters, input_image, label)
+        for input_image, expected_output in dataloader:
+            prior_activations = forward_pass(parameters, input_image, expected_output)
 
             losses = []
             for _ in range(num_iterations):
-                predicted_activations = forward_pass(activations, parameters)
-                # Get the network prediction about the activations and calculate the error between the previous activations
-                activations_error = calculate_activation_error(activations, predicted_activations)
+                predicted_activations = get_predicted_activation(prior_activations, parameters)
+                activations_error = get_activation_error(prior_activations, predicted_activations)
 
                 # Inference and Learning Phase
-                update_activations(activations, activations_error, parameters, activation_lr)
-                update_weights(activations, activations_error, parameters, moments, velocity, parameters_lr, t)
+                update_prior_activations(prior_activations, activations_error, parameters, activation_lr)
+                update_parameters(prior_activations, activations_error, parameters, moments, velocity, parameters_lr, t)
 
-                loss = cross_entropy(label, predicted_activations[-1])
+                loss = cross_entropy(expected_output, predicted_activations[-1])
                 losses.append(np.mean(loss))
 
             each_batch_loss.append(sum(losses))
