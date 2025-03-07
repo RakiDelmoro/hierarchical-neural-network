@@ -150,17 +150,15 @@ def update_weights(activations, activations_error, parameters, m, v, lr, t):
         bias += lr * (m_hat_bias / (np.sqrt(v_hat_bias) + epsilon))
 
 def initialize_moments(size):
-    # TODO: make this function more readable
-    m = []
-    v = []
+    moments = []
+    velocities = []
     for each in range(len(size)-1):
-        w = np.zeros(shape=(size[each], size[each+1]))
-        b = np.zeros(shape=(size[each+1]))
+        weights = np.zeros(shape=(size[each], size[each+1]))
+        bias = np.zeros(shape=(size[each+1]))
+        moments.append([weights, bias])
+        velocities.append([weights, bias])
 
-        m.append([w, b])
-        v.append([w, b])
-
-    return m, v
+    return moments, velocities
 
 def initial_activations(parameters, input_image, label=None):
     activations = [input_image]
