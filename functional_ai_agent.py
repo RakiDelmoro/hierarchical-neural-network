@@ -116,7 +116,6 @@ def push_to_memory(memories_storage, states, actions, reward, next_state, done):
 def fetch_from_memory(memories_storage, size):
     return random.sample(memories_storage, size)
 
-
 def forward(input_state, parameters):
     activations = [input_state]
 
@@ -130,25 +129,33 @@ def forward(input_state, parameters):
             activation = pre_activation
         else:
             activation = relu(pre_activation)
+
         activations.append(activation)
 
     return activations
-
-    return forward
 
 def calculate_activation_loss(activations, loss, parameters):
     activation_losses = [loss]
     for each in range(len(parameters)-1):
         weights = parameters[-(each+1)][0].T
 
-        propagate_previous_loss = np.matmul(loss, weights)
-        loss = relu(activations[-(each+2)], return_derivative=True) * propagate_previous_loss
+        propagate_previous_loss = np.matmul(loss, weights) 
+        loss = propagate_previous_loss * relu(activations[-(each+2)], return_derivative=True)      
         activation_losses.append(loss)
 
     return activation_losses
 
+def get_target_parameters(parameters):
+    copied_parameters = []
+    for each in range(len(parameters)):
+        weight = parameters[each][0]
+        bias = parameters[each][1]
+
+        copied_parameters.append([np.copy(weight), np.copy(bias)])
+
+    return copied_parameters
+
 def backpropagation(activation_losses, activations, parameters):
-    new_parameters = []
     # Left to Right
     for each in range(len(parameters)):
         weights = parameters[-(each+1)][0]
@@ -160,57 +167,25 @@ def backpropagation(activation_losses, activations, parameters):
         grad_weights = np.matmul(activation.T, loss_for_update) / loss_for_update.shape[0]
         grad_bias = np.sum(loss_for_update, axis=0) / loss_for_update.shape[0]
 
-        new_weights = weights - (0.001 * grad_weights)
-        new_bias = bias - (0.001 * grad_bias)
+        weights -= (0.001 * grad_weights)
+        bias -= (0.001 * grad_bias)
 
-        new_parameters.insert(0, [new_weights, new_bias])
-
-    return new_parameters
-
-class ReplayBuffer:
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-
-    def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))   
-
-    def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
-
-    def __len__(self):
-        return len(self.buffer)
-
-def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_net_parameters):
+def ai_agent(policy_net_parameters, target_net_parameters):
     # Hyperparameters
     gamma = 0.99
-    epsilon = 1.0
-    epsilon_min = 0.01
-    epsilon_decay = 0.995
-    learning_rate = 0.001
     batch_size = 256
-
-    state_size = 4
     action_size = 3
 
-    def act(state):
+    def act(state, epsilon):
         if random.random() < epsilon:
             return random.randrange(action_size)
         
-        state = np.float32(get_state(state))
+        state = np.expand_dims(get_state(state), 0)
         policy_net_output = forward(state, policy_net_parameters)
 
         return policy_net_output[-1].argmax().item()
     
-    def train():
-        nonlocal policy_net_parameters
-        nonlocal epsilon
-
-        if len(memory_storage) < batch_size:
-            return policy_net_parameters, epsilon
-
-        batched_state = fetch_from_memory(memory_storage, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batched_state)
-
+    def train(states, actions, rewards, next_states, dones):
         states = np.float32(states)
         actions = np.longlong(actions)
         rewards = np.float32(rewards)
@@ -221,27 +196,31 @@ def ai_agent(brain_architecture, memory_storage, policy_net_parameters, target_n
         target_net_activations = forward(next_states, target_net_parameters)
 
         policy_net_action_prob = policy_net_activations[-1][np.arange(batch_size), actions]
-        target_net_action_prob = target_net_activations[-1].max(axis=1)
+        target_net_action_prob = target_net_activations[-1].max(axis=-1)
 
         target_policy_net_output = rewards + (1 - dones) * gamma * target_net_action_prob
 
         avg_loss, loss_for_backprop = mse_loss(policy_net_action_prob, target_policy_net_output, actions)
         activations_gradients = calculate_activation_loss(policy_net_activations, loss_for_backprop, policy_net_parameters)
 
-        policy_net_parameters = backpropagation(activations_gradients, policy_net_activations, policy_net_parameters)
+        backpropagation(activations_gradients, policy_net_activations, policy_net_parameters)
 
-        epsilon = max(epsilon_min, epsilon * epsilon_decay)
-
-        return policy_net_parameters, epsilon
+        return avg_loss
 
     return train, act
 
 def agent_runner():
-    policy_net_parameters = parameters_init([4, 128, 128, 3])
-    target_net_parameters = policy_net_parameters
+    BATCH_SIZE = 256
+
+    policy_net_parameters = parameters_init([4, 128, 128, 128, 3])
+    target_net_parameters = get_target_parameters(policy_net_parameters)
 
     agent_memories = deque(maxlen=100000)
-    train, act = ai_agent([4, 128, 128, 3], agent_memories, policy_net_parameters, target_net_parameters)
+    train, act = ai_agent(policy_net_parameters, target_net_parameters)
+
+    epsilon = 1.0
+    epsilon_min = 0.01
+    epsilon_decay = 0.995
 
     scores = []
     episode = 0
@@ -251,17 +230,25 @@ def agent_runner():
         done = False
 
         for _ in range(500):
-            action = act(state)
+            action = act(state, epsilon)
             next_state, reward, done = update_simulation(state, action)
             push_to_memory(agent_memories, state, action, reward, next_state, done)
 
-            policy_net_parameters, epsilon = train()
+            if len(agent_memories) < BATCH_SIZE:
+                continue
+
+            batched_memories = fetch_from_memory(agent_memories, BATCH_SIZE)
+            states, actions, rewards, next_states, dones = zip(*batched_memories)
+
+            loss = train(states, actions, rewards, next_states, dones)
             state = next_state
             score += reward
 
+            epsilon = max(epsilon_min, epsilon * epsilon_decay)
+
         if episode % 10 == 0:
             print('Change parameters')
-            target_net_parameters = policy_net_parameters
+            target_net_parameters = get_target_parameters(policy_net_parameters)
 
         scores.append(score)
         avg_score = np.mean(scores[-100:])
