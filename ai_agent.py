@@ -208,6 +208,7 @@ def train_agent():
             score += reward
 
         if episode % 10 == 0:
+            print('Change parameters')
             agent.update_target_network()
 
         scores.append(score)
@@ -221,7 +222,7 @@ def train_agent():
         episode += 1
 
     # Save model weights
-    torch.save(agent.policy_net.state_dict(), 'model.pth')
+    # torch.save(agent.policy_net.state_dict(), 'model.pth')
     
     return agent
 
@@ -241,21 +242,21 @@ def simulate_agent(agent):
     return np.array(states), np.array(actions)
 
 agent = train_agent()
-states, actions = simulate_agent(agent)
+# states, actions = simulate_agent(agent)
 
-# Visualization
-def update(i):
-    x, _, theta, _ = states[i]
-    # Clamp the cart position to stay within the plot bounds
-    x = np.clip(x, -1.5, 1.5)  # Prevent the cart from going too far left or right
-    # Update cart position (a rectangle) and pole (a line)
-    cart.set_data([x - 0.1, x + 0.1], [0, 0])  # Cart is a 1m wide rectangle
-    pole.set_data([x, x + POLE_LENGTH * np.sin(theta)], [0, POLE_LENGTH * np.cos(theta)])
+# # Visualization
+# def update(i):
+#     x, _, theta, _ = states[i]
+#     # Clamp the cart position to stay within the plot bounds
+#     x = np.clip(x, -1.5, 1.5)  # Prevent the cart from going too far left or right
+#     # Update cart position (a rectangle) and pole (a line)
+#     cart.set_data([x - 0.1, x + 0.1], [0, 0])  # Cart is a 1m wide rectangle
+#     pole.set_data([x, x + POLE_LENGTH * np.sin(theta)], [0, POLE_LENGTH * np.cos(theta)])
 
-    time_text.set_text(f'Time: {i*TIME_STEP:.2f}s')
-    force_text.set_text(f'Force: {actions[i].item():.2f} N')
-    return cart, pole, time_text, force_text
+#     time_text.set_text(f'Time: {i*TIME_STEP:.2f}s')
+#     force_text.set_text(f'Force: {actions[i].item():.2f} N')
+#     return cart, pole, time_text, force_text
 
-update_tracking_line()  # Call once to initialize the tracking line
-ani = FuncAnimation(fig, update, frames=len(states), interval=TIME_STEP * 1000, blit=True)
-plt.show()
+# update_tracking_line()  # Call once to initialize the tracking line
+# ani = FuncAnimation(fig, update, frames=len(states), interval=TIME_STEP * 1000, blit=True)
+# plt.show()
