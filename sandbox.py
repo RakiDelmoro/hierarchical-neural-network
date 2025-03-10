@@ -1,70 +1,89 @@
-import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-import numpy as np
+class DPC(nn.Module):
+    def __init__(self, input_dim, lower_dim=256, higher_dim=64, K=5):
+        super().__init__()
+        self.K = K
+        self.lower_dim = lower_dim
+        self.higher_dim = higher_dim
+        
+        # Spatial decoder
+        self.lower_level_network = nn.Linear(lower_dim, input_dim, bias=False)
+        
+        # Transition matrices
+        self.Vk = nn.ParameterList([
+            nn.Parameter(torch.Tensor(lower_dim, lower_dim)) 
+            for _ in range(K)
+        ])
+        for vk in self.Vk:
+            nn.init.kaiming_normal_(vk, nonlinearity='relu')
+        
+        # Hypernetwork
+        self.hyper_network = nn.Sequential(
+            nn.Linear(higher_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, K)
+        )
+        
+        # Higher-level dynamics
+        self.higher_rnn = nn.GRUCell(input_dim, higher_dim)
+        
+        # 0-9 Classifier (For predicting digit)
+        self.digit_classifier = nn.Linear(lower_dim, 10)
+        # left-right-up-down classifier (For predicting next frame)
+        self.direction_classifier = nn.Linear(higher_dim, 4)
+        
+    def forward(self, x_seq):
+        batch_size, seq_len, input_dim = x_seq.shape
+        device = x_seq.device
+        
+        # Initialize states
+        rt = torch.zeros(batch_size, self.lower_dim, device=device)
+        rh = torch.zeros(batch_size, self.higher_dim, device=device)
 
-class PredictiveCodingNetwork:
-    def __init__(self, input_size, hidden_size, output_size):
-        # Initialize weights with random values
-        self.W0 = np.random.randn(input_size, hidden_size) * 0.1  # Input to hidden
-        self.W1 = np.random.randn(hidden_size, output_size) * 0.1 # Hidden to output
+        # Storage for outputs
+        pred_errors = []
+        digit_logits = []
+        direction_logits = []
+
+        for t in range(seq_len):
+            # Decode current frame
+            pred_xt = self.lower_level_network(rt)
+            error = x_seq[:, t] - pred_xt
     
-    def forward(self, x):
-        # Initial forward pass to set initial activities
-        mu0 = x.reshape(-1, 1)
-        mu1 = self.W0.T @ mu0  # Transpose for prediction
-        mu2 = self.W1.T @ mu1
-        return mu0, mu1, mu2
+            # Store prediction error (Mean Squared Error)
+            pred_errors.append(error.pow(2).mean())
     
-    def infer_activities(self, mu0, mu1, mu2, y, inference_rate=0.1, steps=10):
-        y = y.reshape(-1, 1)
-        for _ in range(steps):
-            # Compute prediction errors
-            epsilon0 = mu0 - self.W0 @ mu1
-            epsilon1 = mu1 - self.W1 @ mu2
-            epsilon2 = mu2 - y
-
-            # Compute gradients for activities
-            d_mu1 = epsilon1 + self.W0.T @ epsilon0
-            d_mu2 = epsilon2 + self.W1.T @ epsilon1
-
-            # Update activities
-            mu1 += inference_rate * d_mu1
-            mu2 += inference_rate * d_mu2
-        return mu1, mu2
-
-    def update_weights(self, mu0, mu1, mu2, learning_rate=0.01):
-        # Compute errors with settled activities
-        epsilon0 = mu0 - self.W0 @ mu1
-        epsilon1 = mu1 - self.W1 @ mu2
-
-        # Update weights (Hebbian-like updates)
-        self.W0 -= learning_rate * epsilon0 @ mu1.T
-        self.W1 -= learning_rate * epsilon1 @ mu2.T
-
-    def train(self, X, y, epochs=1000, inference_rate=0.1, learning_rate=0.01, inference_steps=20):
-        for epoch in range(epochs):
-            total_error = 0
-            for xi, target in zip(X, y):
-                # Initial forward pass
-                mu0, mu1, mu2 = self.forward(xi)
-                
-                # Inference phase to settle activities
-                mu1, mu2 = self.infer_activities(mu0, mu1, mu2, target, inference_rate, inference_steps)
-                
-                # Compute total error for monitoring
-                epsilon2 = mu2 - target.reshape(-1, 1)
-                total_error += 0.5 * np.sum(epsilon2**2)
-                
-                # Update weights
-                self.update_weights(mu0, mu1, mu2, learning_rate)
+            # Update higher level
+            rh = self.higher_rnn(error.detach(), rh)
             
-            if epoch % 100 == 0:
-                print(f"Epoch {epoch}, Error: {total_error / len(X):.4f}")
-
-# Example: XOR Problem
-X = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
-y = np.array([[0], [1], [1], [0]])
-
-# Create and train the network
-network = PredictiveCodingNetwork(input_size=2, hidden_size=2, output_size=1)
-network.train(X, y, epochs=1000, learning_rate=0.01, inference_steps=6)
+            # Generate transition weights
+            w = self.hyper_network(rh)
+            
+            # Combine transition matrices
+            V = sum(w[:, k].unsqueeze(-1).unsqueeze(-1) * self.Vk[k] 
+                     for k in range(self.K))
+            
+            # Update lower state with ReLU and noise
+            rt = F.relu(torch.einsum('bij,bj->bi', V, rt)) + 0.01 * torch.randn_like(rt)
+            
+            # Classify (using current states)
+            digit_logits.append(self.digit_classifier(rt))
+            direction_logits.append(self.direction_classifier(rh))
+        
+        # Average predictions over time
+        digit_logit = torch.stack(digit_logits).mean(0)
+        direction_logit = torch.stack(direction_logits).mean(0)
+        pred_error = torch.stack(pred_errors).mean()
+        
+        return {
+            'digit_prediction': digit_logit,
+            'direction_frame': direction_logit,
+            'prediction_error': pred_error
+        }
+    
+input_x = torch.randn(32, 10, 784)
+model = DPC(784)
+model(input_x)
