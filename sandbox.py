@@ -53,16 +53,16 @@ class DPC(nn.Module):
             # Decode current frame
             pred_xt = self.lower_level_network(rt)
             error = x_seq[:, t] - pred_xt
-    
+
             # Store prediction error
             pred_errors.append(error.pow(2).mean())
-    
+
             # Update higher level
             rh = self.higher_rnn(error.detach(), rh)
-            
+
             # Generate transition weights
             w = self.hyper_network(rh)
-            
+
             # Combine transition matrices
             V = sum(w[:, k].unsqueeze(-1).unsqueeze(-1) * self.Vk[k] for k in range(self.K))
             
@@ -136,8 +136,47 @@ def evaluate(model, loader):
         [print(f"Digit Image is: {RED}{expected}{RESET} Model Prediction: {RED}{prediction}{RESET}") for i, (prediction, expected) in enumerate(wrongness) if i < 5]
 
     return torch.mean(torch.tensor(model_accuracies)).item()
-    
+
+def lower_network_forward():
+    pass
+
+def transition_matrices_forward():
+    pass
+
+def hyper_network_forward():
+    pass
+
+def higher_rnn_forward():
+    pass
+
+def digit_classifier_forward():
+    pass
+
+def numpy_dpc(torch_model):
+    """Shared parameters initialization with torch model"""
+
+    # Spatial decoder
+    lower_level_network_parameters = torch_model.lower_level_network.weight.data.numpy()
+    # Transition matrices
+    Vk_parameters = [vk.data.numpy() for vk in torch_model.Vk]
+    # Hypernetwork
+    hyper_network_parameters = [[layer.weight.data.numpy(), layer.bias.data.numpy()] for layer in torch_model.hyper_network if isinstance(layer, nn.Linear)]
+    # Higher-level dynamics
+    higher_rnn_parameters = [[torch_model.higher_rnn.weight_ih.data.numpy(), torch_model.higher_rnn.bias_ih.data.numpy()], [torch_model.higher_rnn.weight_hh.data.numpy(), torch_model.higher_rnn.bias_hh.data.numpy()]]
+    # Digit classifier only
+    digit_classifier_parameters = [torch_model.digit_classifier.weight.data.numpy(), torch_model.digit_classifier.bias.data.numpy()]
+
+    def forward(dataloader):
+        for batched_image, batched_label in dataloader:
+            batched_image = batched_image.view(batched_image.size(0), -1, 28*28).repeat(1, 5, 1).numpy()
+            batched_label = batched_label.numpy()
+            print(batched_image.shape, batched_label.shape)
+
+    return forward
+
+
 def main_runner():
+    MAX_EPOCHS = 100
     IMAGE_HEIGHT = 28
     IMAGE_WIDTH = 28
 
@@ -146,13 +185,21 @@ def main_runner():
     assert test_images.shape[0] == test_labels.shape[0]
     assert train_images.shape[1] == test_images.shape[1] == IMAGE_HEIGHT*IMAGE_WIDTH
 
-    model = DPC(IMAGE_HEIGHT*IMAGE_WIDTH)
+    torch_model = DPC(IMAGE_HEIGHT*IMAGE_WIDTH)
+    numpy_model = numpy_dpc(torch_model)
 
-    for i in range(3000):
+    # Torch Runner
+    for epoch in range(MAX_EPOCHS):
         training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
         test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-        loss = train(model, training_loader)
-        accuracy = evaluate(model, test_loader)
-        print('EPOCH: {} LOSS: {} Accuracy: {}'.format(i+1, loss, accuracy))
+        loss = train(torch_model, training_loader)
+        accuracy = evaluate(torch_model, test_loader)
+        print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
+
+    # Numpy Runner
+    for epoch in range(MAX_EPOCHS):
+        training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
+        test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
+        numpy_model(training_loader)
 
 main_runner()
