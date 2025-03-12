@@ -8,6 +8,23 @@ import torch.nn.functional as F
 from features import RED, GREEN, RESET
 from batching import image_data_batching
 
+def softmax(input_data, return_derivative=False):
+    # Subtract max value for numerical stability
+    shifted_data = input_data - np.max(input_data, axis=-1, keepdims=True)
+    # Calculate exp
+    exp_data = np.exp(shifted_data)
+    # Sum along axis=1 and keep dimensions for broadcasting
+    sum_exp_data = np.sum(exp_data, axis=-1, keepdims=True)
+
+    return exp_data / sum_exp_data
+
+def cross_entropy_loss(predicted, expected):
+    predicted_probs = softmax(predicted)
+    one_hot_expected = np.zeros(shape=(predicted.shape[0], 10))
+    one_hot_expected[np.arange(len(expected)), expected] = 1
+
+    return -np.mean(np.sum(one_hot_expected * np.log(predicted_probs), axis=-1))
+
 class DPC(nn.Module):
     def __init__(self, input_dim, lower_dim=256, higher_dim=64, K=5):
         super().__init__()
@@ -78,9 +95,9 @@ class DPC(nn.Module):
         pred_error = torch.stack(pred_errors).mean()
 
         return {'digit_prediction': digit_logit, 'prediction_error': pred_error}
-    
+
 def train(model, loader):
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     loss_fn = nn.CrossEntropyLoss()
     
     each_batch_losses = []
@@ -100,7 +117,7 @@ def train(model, loader):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
+        print(loss.item())
         each_batch_losses.append(loss.item())
 
     return torch.mean(torch.tensor(each_batch_losses)).item()
@@ -145,9 +162,12 @@ def relu(input_data, return_derivative=False):
         return np.maximum(0, input_data)
 
 def lower_network_forward(input_data, parameters):
-    activation = np.matmul(input_data, parameters.T)
+    activations = [input_data]
 
-    return activation
+    activation = np.matmul(input_data, parameters.T)
+    activations.append(activation)
+
+    return activations
 
 def transition_matrices_forward(input_data, parameters):
     pass
@@ -167,17 +187,24 @@ def hyper_network_forward(input_data, parameters):
     return activations
 
 def higher_rnn_forward(input_data, hidden_state, parameters):
+    input_to_hidden_activations = [input_data]
+    hidden_to_hidden_activations = [hidden_state]
+
     input_to_hidden_params = parameters[0]
     hidden_to_hidden_params = parameters[1]
 
     input_to_hidden_activation = np.matmul(input_data, input_to_hidden_params[0].T) + input_to_hidden_params[1]
     hidden_to_hidden_activation = np.matmul(hidden_state, hidden_to_hidden_params[0].T) + hidden_to_hidden_params[1]
 
-    return relu((input_to_hidden_activation + hidden_to_hidden_activation))
+    output = relu((input_to_hidden_activation + hidden_to_hidden_activation))
 
+    return input_to_hidden_activation, hidden_to_hidden_activation, output
 
 def digit_classifier_forward(input_data, parameters):
-    pass
+    weights = parameters[0]
+    bias = parameters[1]
+
+    return np.matmul(input_data, weights.T) + bias
 
 def numpy_dpc(torch_model):
     """Shared parameters initialization with torch model"""
@@ -197,25 +224,39 @@ def numpy_dpc(torch_model):
         batch_size, seq_len, _ = batched_image.shape
 
         # Initialize states
-        rt = np.zeros(shape=(batch_size, torch_model.lower_dim))
-        rh = np.zeros(shape=(batch_size, torch_model.higher_dim))
+        lower_level_state = np.zeros(shape=(batch_size, torch_model.lower_dim))
+        higher_level_state = np.zeros(shape=(batch_size, torch_model.higher_dim))
 
         # Storage for outputs
         pred_errors = []
         digit_logits = []
 
         for t in range(seq_len):
-            pred_xt = lower_network_forward(rt, lower_level_network_parameters)
-            error = batched_image[:, t] - pred_xt
+            lower_level_network_activations = lower_network_forward(lower_level_state, lower_level_network_parameters)
+            error = batched_image[:, t] - lower_level_network_activations[-1]
 
             # Store prediction error
             pred_errors.append(np.mean(error**2))
 
             # Update higher level
-            rh = higher_rnn_forward(error, rh, higher_rnn_parameters)
+            higher_level_state = higher_rnn_forward(error, higher_level_state, higher_rnn_parameters)
 
             # Generate transition weights
-            w = hyper_network_forward(rh, hyper_network_parameters)
+            w = hyper_network_forward(higher_level_state, hyper_network_parameters)[-1]
+
+            value = sum(w[:, k].reshape(-1, 1, 1) * Vk_parameters[k] for k in range(torch_model.K))
+
+            # Update lower state with ReLU and noise
+            lower_level_state = relu(np.einsum('bij,bj->bi', value, lower_level_state)) + 0.01 * np.random.randn(*lower_level_state.shape)
+
+            # Collect digit logits
+            model_prediction = digit_classifier_forward(lower_level_state, digit_classifier_parameters)
+            digit_logits.append(model_prediction)
+        
+        model_digit_prediction = np.stack(digit_logits).mean(0)
+        prediction_error = np.stack(pred_errors).mean()
+
+        return {'digit_prediction': model_digit_prediction, 'prediction_error': prediction_error}
 
     def train_runner(dataloader):
         for batched_image, batched_label in dataloader:
@@ -223,10 +264,17 @@ def numpy_dpc(torch_model):
             batched_image = batched_image.view(batched_image.size(0), -1, 28*28).repeat(1, 5, 1).numpy()
             batched_label = batched_label.numpy()
 
-            forward(batched_image)
+            model_outputs = forward(batched_image)
+            digit_prediction = model_outputs['digit_prediction']
+            prediction_error = model_outputs['prediction_error']
+
+            # Calculate losses
+            model_loss = cross_entropy_loss(digit_prediction, batched_label)
+
+            # Combine losses with regularization
+            loss = model_loss + 0.1 * prediction_error + 0.01 * np.mean(lower_level_network_parameters**2)
 
     return train_runner
-
 
 def main_runner():
     MAX_EPOCHS = 100
