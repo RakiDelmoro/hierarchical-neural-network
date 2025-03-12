@@ -138,6 +138,12 @@ def evaluate(model, loader):
 
     return torch.mean(torch.tensor(model_accuracies)).item()
 
+def relu(input_data, return_derivative=False):
+    if return_derivative:
+        return np.where(input_data > 0, 1, 0)
+    else:
+        return np.maximum(0, input_data)
+
 def lower_network_forward(input_data, parameters):
     activation = np.matmul(input_data, parameters.T)
 
@@ -147,10 +153,28 @@ def transition_matrices_forward(input_data, parameters):
     pass
 
 def hyper_network_forward(input_data, parameters):
-    pass
+    activations = [input_data]
+    activation = input_data
+    for each in range(len(parameters)):
+        last_layer = each == len(parameters)-1
+        weights = parameters[each][0]
+        bias = parameters[each][1]
 
-def higher_rnn_forward(input_data, parameters):
-    pass
+        pre_activation = np.matmul(activation, weights.T) + bias
+        activation = pre_activation if last_layer else relu(pre_activation)
+        activations.append(activation)
+    
+    return activations
+
+def higher_rnn_forward(input_data, hidden_state, parameters):
+    input_to_hidden_params = parameters[0]
+    hidden_to_hidden_params = parameters[1]
+
+    input_to_hidden_activation = np.matmul(input_data, input_to_hidden_params[0].T) + input_to_hidden_params[1]
+    hidden_to_hidden_activation = np.matmul(hidden_state, hidden_to_hidden_params[0].T) + hidden_to_hidden_params[1]
+
+    return relu((input_to_hidden_activation + hidden_to_hidden_activation))
+
 
 def digit_classifier_forward(input_data, parameters):
     pass
@@ -188,7 +212,10 @@ def numpy_dpc(torch_model):
             pred_errors.append(np.mean(error**2))
 
             # Update higher level
-            rh 
+            rh = higher_rnn_forward(error, rh, higher_rnn_parameters)
+
+            # Generate transition weights
+            w = hyper_network_forward(rh, hyper_network_parameters)
 
     def train_runner(dataloader):
         for batched_image, batched_label in dataloader:
