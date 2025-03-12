@@ -2,6 +2,7 @@ import gzip
 import pickle
 import torch
 import random
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from features import RED, GREEN, RESET
@@ -137,19 +138,21 @@ def evaluate(model, loader):
 
     return torch.mean(torch.tensor(model_accuracies)).item()
 
-def lower_network_forward():
+def lower_network_forward(input_data, parameters):
+    activation = np.matmul(input_data, parameters.T)
+
+    return activation
+
+def transition_matrices_forward(input_data, parameters):
     pass
 
-def transition_matrices_forward():
+def hyper_network_forward(input_data, parameters):
     pass
 
-def hyper_network_forward():
+def higher_rnn_forward(input_data, parameters):
     pass
 
-def higher_rnn_forward():
-    pass
-
-def digit_classifier_forward():
+def digit_classifier_forward(input_data, parameters):
     pass
 
 def numpy_dpc(torch_model):
@@ -166,13 +169,36 @@ def numpy_dpc(torch_model):
     # Digit classifier only
     digit_classifier_parameters = [torch_model.digit_classifier.weight.data.numpy(), torch_model.digit_classifier.bias.data.numpy()]
 
-    def forward(dataloader):
+    def forward(batched_image):
+        batch_size, seq_len, _ = batched_image.shape
+
+        # Initialize states
+        rt = np.zeros(shape=(batch_size, torch_model.lower_dim))
+        rh = np.zeros(shape=(batch_size, torch_model.higher_dim))
+
+        # Storage for outputs
+        pred_errors = []
+        digit_logits = []
+
+        for t in range(seq_len):
+            pred_xt = lower_network_forward(rt, lower_level_network_parameters)
+            error = batched_image[:, t] - pred_xt
+
+            # Store prediction error
+            pred_errors.append(np.mean(error**2))
+
+            # Update higher level
+            rh 
+
+    def train_runner(dataloader):
         for batched_image, batched_label in dataloader:
+            # From (Batch, height*width) to (Batch, 5, height*width)
             batched_image = batched_image.view(batched_image.size(0), -1, 28*28).repeat(1, 5, 1).numpy()
             batched_label = batched_label.numpy()
-            print(batched_image.shape, batched_label.shape)
 
-    return forward
+            forward(batched_image)
+
+    return train_runner
 
 
 def main_runner():
@@ -188,13 +214,13 @@ def main_runner():
     torch_model = DPC(IMAGE_HEIGHT*IMAGE_WIDTH)
     numpy_model = numpy_dpc(torch_model)
 
-    # Torch Runner
-    for epoch in range(MAX_EPOCHS):
-        training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
-        test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-        loss = train(torch_model, training_loader)
-        accuracy = evaluate(torch_model, test_loader)
-        print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
+    # # Torch Runner
+    # for epoch in range(MAX_EPOCHS):
+    #     training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
+    #     test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
+    #     loss = train(torch_model, training_loader)
+    #     accuracy = evaluate(torch_model, test_loader)
+    #     print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
 
     # Numpy Runner
     for epoch in range(MAX_EPOCHS):
