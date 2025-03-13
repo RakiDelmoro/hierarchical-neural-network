@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from features import RED, GREEN, RESET
 from batching import image_data_batching
+from dpc_numpy import numpy_dpc, cross_entropy_loss, numpy_train_runner
 
 def softmax(input_data, return_derivative=False):
     # Subtract max value for numerical stability
@@ -18,12 +19,12 @@ def softmax(input_data, return_derivative=False):
 
     return exp_data / sum_exp_data
 
-def cross_entropy_loss(predicted, expected):
-    predicted_probs = softmax(predicted)
-    one_hot_expected = np.zeros(shape=(predicted.shape[0], 10))
-    one_hot_expected[np.arange(len(expected)), expected] = 1
+# def cross_entropy_loss(predicted, expected):
+#     predicted_probs = softmax(predicted)
+#     one_hot_expected = np.zeros(shape=(predicted.shape[0], 10))
+#     one_hot_expected[np.arange(len(expected)), expected] = 1
 
-    return -np.mean(np.sum(one_hot_expected * np.log(predicted_probs), axis=-1))
+#     return -np.mean(np.sum(one_hot_expected * np.log(predicted_probs), axis=-1))
 
 class DPC(nn.Module):
     def __init__(self, input_dim, lower_dim=256, higher_dim=64, K=5):
@@ -85,7 +86,7 @@ class DPC(nn.Module):
             V = sum(w[:, k].unsqueeze(-1).unsqueeze(-1) * self.Vk[k] for k in range(self.K))
             
             # Update lower state with ReLU and noise
-            rt = F.relu(torch.einsum('bij,bj->bi', V, rt)) + 0.01 * torch.randn_like(rt)
+            rt = F.relu(torch.einsum('bij,bj->bi', V, rt)) #+ 0.01 * torch.randn_like(rt)
 
             # Collect digit logits
             digit_logits.append(self.digit_classifier(rt))
@@ -96,8 +97,8 @@ class DPC(nn.Module):
 
         return {'digit_prediction': digit_logit, 'prediction_error': pred_error}
 
-def train(model, loader):
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+def train(torch_model, numpy_model, loader):
+    optimizer = torch.optim.AdamW(torch_model.parameters(), lr=1e-3)
     loss_fn = nn.CrossEntropyLoss()
     
     each_batch_losses = []
@@ -105,15 +106,18 @@ def train(model, loader):
         input_image = input_image.view(input_image.size(0), -1, 28*28).repeat(1, 5, 1)
         digits = digits
         
-        outputs = model(input_image)
+        torch_outputs = torch_model(input_image)
+        numpy_outputs = numpy_model(input_image.numpy())
 
         # Calculate losses
-        loss_digit = loss_fn(outputs['digit_prediction'], digits)
-        loss_pred = outputs['prediction_error']
-        
+        loss_digit = loss_fn(torch_outputs['digit_prediction'], digits)
+        loss_pred = torch_outputs['prediction_error']
+
+        numpy_loss = cross_entropy_loss(numpy_outputs['digit_prediction'], digits.numpy())
+
         # Combine losses with regularization
-        loss = (loss_digit + 0.1 * loss_pred + 0.01 * (model.lower_level_network.weight.pow(2).mean()))
-        
+        loss = (loss_digit + 0.1 * loss_pred + 0.01 * (torch_model.lower_level_network.weight.pow(2).mean()))
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -155,126 +159,6 @@ def evaluate(model, loader):
 
     return torch.mean(torch.tensor(model_accuracies)).item()
 
-def relu(input_data, return_derivative=False):
-    if return_derivative:
-        return np.where(input_data > 0, 1, 0)
-    else:
-        return np.maximum(0, input_data)
-
-def lower_network_forward(input_data, parameters):
-    activations = [input_data]
-
-    activation = np.matmul(input_data, parameters.T)
-    activations.append(activation)
-
-    return activations
-
-def transition_matrices_forward(input_data, parameters):
-    pass
-
-def hyper_network_forward(input_data, parameters):
-    activations = [input_data]
-    activation = input_data
-    for each in range(len(parameters)):
-        last_layer = each == len(parameters)-1
-        weights = parameters[each][0]
-        bias = parameters[each][1]
-
-        pre_activation = np.matmul(activation, weights.T) + bias
-        activation = pre_activation if last_layer else relu(pre_activation)
-        activations.append(activation)
-    
-    return activations
-
-def higher_rnn_forward(input_data, hidden_state, parameters):
-    input_to_hidden_activations = [input_data]
-    hidden_to_hidden_activations = [hidden_state]
-
-    input_to_hidden_params = parameters[0]
-    hidden_to_hidden_params = parameters[1]
-
-    input_to_hidden_activation = np.matmul(input_data, input_to_hidden_params[0].T) + input_to_hidden_params[1]
-    hidden_to_hidden_activation = np.matmul(hidden_state, hidden_to_hidden_params[0].T) + hidden_to_hidden_params[1]
-
-    output = relu((input_to_hidden_activation + hidden_to_hidden_activation))
-
-    return input_to_hidden_activation, hidden_to_hidden_activation, output
-
-def digit_classifier_forward(input_data, parameters):
-    weights = parameters[0]
-    bias = parameters[1]
-
-    return np.matmul(input_data, weights.T) + bias
-
-def numpy_dpc(torch_model):
-    """Shared parameters initialization with torch model"""
-
-    # Spatial decoder
-    lower_level_network_parameters = torch_model.lower_level_network.weight.data.numpy()
-    # Transition matrices
-    Vk_parameters = [vk.data.numpy() for vk in torch_model.Vk]
-    # Hypernetwork
-    hyper_network_parameters = [[layer.weight.data.numpy(), layer.bias.data.numpy()] for layer in torch_model.hyper_network if isinstance(layer, nn.Linear)]
-    # Higher-level dynamics
-    higher_rnn_parameters = [[torch_model.higher_rnn.weight_ih.data.numpy(), torch_model.higher_rnn.bias_ih.data.numpy()], [torch_model.higher_rnn.weight_hh.data.numpy(), torch_model.higher_rnn.bias_hh.data.numpy()]]
-    # Digit classifier only
-    digit_classifier_parameters = [torch_model.digit_classifier.weight.data.numpy(), torch_model.digit_classifier.bias.data.numpy()]
-
-    def forward(batched_image):
-        batch_size, seq_len, _ = batched_image.shape
-
-        # Initialize states
-        lower_level_state = np.zeros(shape=(batch_size, torch_model.lower_dim))
-        higher_level_state = np.zeros(shape=(batch_size, torch_model.higher_dim))
-
-        # Storage for outputs
-        pred_errors = []
-        digit_logits = []
-
-        for t in range(seq_len):
-            lower_level_network_activations = lower_network_forward(lower_level_state, lower_level_network_parameters)
-            error = batched_image[:, t] - lower_level_network_activations[-1]
-
-            # Store prediction error
-            pred_errors.append(np.mean(error**2))
-
-            # Update higher level
-            higher_level_state = higher_rnn_forward(error, higher_level_state, higher_rnn_parameters)
-
-            # Generate transition weights
-            w = hyper_network_forward(higher_level_state, hyper_network_parameters)[-1]
-
-            value = sum(w[:, k].reshape(-1, 1, 1) * Vk_parameters[k] for k in range(torch_model.K))
-
-            # Update lower state with ReLU and noise
-            lower_level_state = relu(np.einsum('bij,bj->bi', value, lower_level_state)) + 0.01 * np.random.randn(*lower_level_state.shape)
-
-            # Collect digit logits
-            model_prediction = digit_classifier_forward(lower_level_state, digit_classifier_parameters)
-            digit_logits.append(model_prediction)
-        
-        model_digit_prediction = np.stack(digit_logits).mean(0)
-        prediction_error = np.stack(pred_errors).mean()
-
-        return {'digit_prediction': model_digit_prediction, 'prediction_error': prediction_error}
-
-    def train_runner(dataloader):
-        for batched_image, batched_label in dataloader:
-            # From (Batch, height*width) to (Batch, 5, height*width)
-            batched_image = batched_image.view(batched_image.size(0), -1, 28*28).repeat(1, 5, 1).numpy()
-            batched_label = batched_label.numpy()
-
-            model_outputs = forward(batched_image)
-            digit_prediction = model_outputs['digit_prediction']
-            prediction_error = model_outputs['prediction_error']
-
-            # Calculate losses
-            model_loss = cross_entropy_loss(digit_prediction, batched_label)
-
-            # Combine losses with regularization
-            loss = model_loss + 0.1 * prediction_error + 0.01 * np.mean(lower_level_network_parameters**2)
-
-    return train_runner
 
 def main_runner():
     MAX_EPOCHS = 100
@@ -293,14 +177,15 @@ def main_runner():
     # for epoch in range(MAX_EPOCHS):
     #     training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
     #     test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-    #     loss = train(torch_model, training_loader)
-    #     accuracy = evaluate(torch_model, test_loader)
-    #     print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
+    #     loss = train(torch_model, numpy_model, training_loader)
+
+    #     # accuracy = evaluate(torch_model, test_loader)
+    #     # print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
 
     # Numpy Runner
     for epoch in range(MAX_EPOCHS):
         training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
         test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-        numpy_model(training_loader)
+        loss = numpy_train_runner(numpy_model, training_loader)
 
 main_runner()
