@@ -6,25 +6,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from features import RED, GREEN, RESET
-from batching import image_data_batching
-from dpc_numpy import numpy_dpc, cross_entropy_loss, numpy_train_runner
-
-def softmax(input_data, return_derivative=False):
-    # Subtract max value for numerical stability
-    shifted_data = input_data - np.max(input_data, axis=-1, keepdims=True)
-    # Calculate exp
-    exp_data = np.exp(shifted_data)
-    # Sum along axis=1 and keep dimensions for broadcasting
-    sum_exp_data = np.sum(exp_data, axis=-1, keepdims=True)
-
-    return exp_data / sum_exp_data
-
-# def cross_entropy_loss(predicted, expected):
-#     predicted_probs = softmax(predicted)
-#     one_hot_expected = np.zeros(shape=(predicted.shape[0], 10))
-#     one_hot_expected[np.arange(len(expected)), expected] = 1
-
-#     return -np.mean(np.sum(one_hot_expected * np.log(predicted_probs), axis=-1))
+from dpc_numpy import cross_entropy_loss
 
 class DPC(nn.Module):
     def __init__(self, input_dim, lower_dim=256, higher_dim=64, K=5):
@@ -107,13 +89,13 @@ def train(torch_model, numpy_model, loader):
         digits = digits
         
         torch_outputs = torch_model(input_image)
-        numpy_outputs = numpy_model(input_image.numpy())
+        numpy_outputs = numpy_model(input_image.numpy()) # For Debugging (Comparing the result of torch and numpy)
 
         # Calculate losses
         loss_digit = loss_fn(torch_outputs['digit_prediction'], digits)
         loss_pred = torch_outputs['prediction_error']
 
-        numpy_loss = cross_entropy_loss(numpy_outputs['digit_prediction'], digits.numpy())
+        numpy_loss = cross_entropy_loss(numpy_outputs['digit_prediction'], digits.numpy()) # For Debugging (Comparing the result of torch and numpy)
 
         # Combine losses with regularization
         loss = (loss_digit + 0.1 * loss_pred + 0.01 * (torch_model.lower_level_network.weight.pow(2).mean()))
@@ -160,32 +142,4 @@ def evaluate(model, loader):
     return torch.mean(torch.tensor(model_accuracies)).item()
 
 
-def main_runner():
-    MAX_EPOCHS = 100
-    IMAGE_HEIGHT = 28
-    IMAGE_WIDTH = 28
 
-    with gzip.open('./datasets/mnist.pkl.gz', 'rb') as f: ((train_images, train_labels), (test_images, test_labels), _) = pickle.load(f, encoding='latin1')
-    assert train_images.shape[0] == train_labels.shape[0]
-    assert test_images.shape[0] == test_labels.shape[0]
-    assert train_images.shape[1] == test_images.shape[1] == IMAGE_HEIGHT*IMAGE_WIDTH
-
-    torch_model = DPC(IMAGE_HEIGHT*IMAGE_WIDTH)
-    numpy_model = numpy_dpc(torch_model)
-
-    # # Torch Runner
-    # for epoch in range(MAX_EPOCHS):
-    #     training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
-    #     test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-    #     loss = train(torch_model, numpy_model, training_loader)
-
-    #     # accuracy = evaluate(torch_model, test_loader)
-    #     # print('EPOCH: {} LOSS: {} Accuracy: {}'.format(epoch+1, loss, accuracy))
-
-    # Numpy Runner
-    for epoch in range(MAX_EPOCHS):
-        training_loader = image_data_batching(train_images, train_labels, batch_size=128, shuffle=True)
-        test_loader = image_data_batching(test_images, test_labels, batch_size=128, shuffle=True)
-        loss = numpy_train_runner(numpy_model, training_loader)
-
-main_runner()
