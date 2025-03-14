@@ -67,7 +67,7 @@ def rnn_forward(input_data, hidden_state, parameters, caches):
     input_to_hidden_caches.append(input_to_hidden_activation)
     hidden_to_hidden_caches.append(hidden_to_hidden_activation)
 
-    caches['rnn_caches'].append([input_to_hidden_caches, hidden_to_hidden_caches])
+    caches['rnn_caches'].append([input_to_hidden_caches, hidden_to_hidden_caches, output])
 
     return output
 
@@ -99,6 +99,14 @@ def prediction_frame_error(predicted, expected, caches):
 
     return np.mean(error**2), error
 
+def lower_net_state_update(updated_lower_net_state, value, caches):
+    lower_net_reshaped = np.expand_dims(updated_lower_net_state, axis=-1)
+    updated_lower_net_state = relu(np.matmul(value, lower_net_reshaped).squeeze(-1)) #+ 0.01 * np.random.randn(*updated_lower_net_state.shape)
+
+    caches['lower_net_states'].append([updated_lower_net_state, lower_net_reshaped, value])
+
+    return updated_lower_net_state
+
 def classifier_backward(seq_len, activation, loss, gradients, parameters):
     # Gradients from digit classifier
     classifier_input, _ = activation
@@ -110,14 +118,68 @@ def classifier_backward(seq_len, activation, loss, gradients, parameters):
 
     return classifier_grad_propagate
 
-def lower_network_backward(seq_len, activation, gradients, parameters):
-    pass
+def lower_net_update_state_backward(state, gradients):
+    # Backprop through lower net update state
+    lower_net_state, lower_net_reshaped, value = state
+    relu_deriv = relu(lower_net_state, return_derivative=True)
+    chain_gradient = gradients * relu_deriv
+    chain_gradient_reshaped = chain_gradient.reshape(-1, chain_gradient.shape[1], 1)
 
-def hyper_network_backward(activation, gradients, parameters):
-    pass
+    # Gradients for value_t and lower_prev
+    dL_dvalue = np.einsum('bik,bjk->bij', chain_gradient_reshaped, lower_net_reshaped) / lower_net_state.shape[0]
+    dL_d_lower_prev = np.einsum('bij,bik->bjk', value, chain_gradient_reshaped).squeeze()
 
-def rnn_backward(activation, gradients, parameters):
-    pass
+    return dL_dvalue, dL_d_lower_prev
+
+def combine_transitions_backward(deriv_value, activation, Vk_gradients, parameters, batch_size):
+    # Backprop through combine transitions
+    generated_weights, _ = activation
+    for k in range(len(parameters)):
+        Vk_gradients[k] += np.mean(generated_weights[:, k, None, None] * deriv_value, axis=0)
+
+    dL_dgenerated_weights = np.stack([np.sum(vk * deriv_value, axis=(1, 2)) for vk in parameters], axis=1) / batch_size
+
+    return dL_dgenerated_weights
+
+def hyper_network_backward(activation, gradients, hyper_net_gradients, parameters):
+    # Backprop through hyper network
+    dL_d_hyper = gradients
+    for layer_idx in reversed(range(len(parameters))):
+        weights, _ = parameters[layer_idx]
+        layer_input = activation[layer_idx]
+        layer_output = activation[layer_idx + 1]
+
+        if layer_idx == len(parameters) - 1:
+            dpre_activation = dL_d_hyper
+        else:
+            dpre_activation = dL_d_hyper * relu(layer_output, return_derivative=True)
+
+        hyper_net_gradients[layer_idx][0] += np.matmul(dpre_activation.T, layer_input)
+        hyper_net_gradients[layer_idx][1] += np.sum(dpre_activation, axis=0)
+
+        dL_d_hyper = np.matmul(dpre_activation, weights)
+
+    return dL_d_hyper
+
+def rnn_backward(activations, previous_gradient, gradients, parameters):
+    input_to_hidden_caches, hidden_to_hidden_caches, output = activations
+    
+    dL_d_activation = previous_gradient * relu(output, return_derivative=True)
+
+    # Input to hidden gradients
+    gradients[0][0] += np.matmul(dL_d_activation.T, input_to_hidden_caches[0])
+    gradients[0][1] += np.sum(dL_d_activation, axis=0)
+
+    # input to hidden propagate 
+    inp_to_hid_propagate_err = np.matmul(dL_d_activation, parameters[0][0])
+
+    # Hidden to hidden gradients
+    gradients[1][0] += np.matmul(dL_d_activation.T, hidden_to_hidden_caches[0])
+    gradients[1][1] += np.sum(dL_d_activation, axis=0)
+
+    hid_to_hid_propagate_err = np.matmul(dL_d_activation, parameters[1][0])
+
+    return inp_to_hid_propagate_err, hid_to_hid_propagate_err
 
 def backpropagate(batched_image, activations_caches, model_parameters, gradients, pred_frame_gradients, torch_model):
     # Dimensions
@@ -129,10 +191,11 @@ def backpropagate(batched_image, activations_caches, model_parameters, gradients
     # Numpy model activations caches
     lower_network_act = activations_caches['lower_network_caches']
     hyper_network_act = activations_caches['hyper_network_caches']
-    rnn_act = activations_caches['rnn_caches']
+    rnn_activations = activations_caches['rnn_caches']
     combine_transitions_act = activations_caches['combine_transitions_caches']
     classifier_act = activations_caches['classifier_caches']
     prediction_error = activations_caches['prediction_error']
+    lower_net_states = activations_caches['lower_net_states']
 
     # Numpy model parameters
     lower_net_parameters = model_parameters['lower_network_parameters']
@@ -147,72 +210,78 @@ def backpropagate(batched_image, activations_caches, model_parameters, gradients
     hyper_net_gradients = [[np.zeros_like(layer.weight.data.numpy()), np.zeros_like(layer.bias.data.numpy())] for layer in torch_model.hyper_network if isinstance(layer, nn.Linear)]
     rnn_gradients = [[np.zeros_like(torch_model.higher_rnn.weight_ih.data.numpy()), np.zeros_like(torch_model.higher_rnn.bias_ih.data.numpy())],
                              [np.zeros_like(torch_model.higher_rnn.weight_hh.data.numpy()), np.zeros_like(torch_model.higher_rnn.bias_hh.data.numpy())]]
-    classifier_gradient = [np.zeros_like(torch_model.digit_classifier.weight.data.numpy()), np.zeros_like(torch_model.digit_classifier.bias.data.numpy())]
+    classifier_gradients = [np.zeros_like(torch_model.digit_classifier.weight.data.numpy()), np.zeros_like(torch_model.digit_classifier.bias.data.numpy())]
 
-    # Initialize hidden state gradients
-    d_lower_next = np.zeros((batch_size, lower_dim))
-    d_higher_next = np.zeros((batch_size, higher_dim))
+    dL_d_higher = 0
+    dL_d_lower = 0
 
     for t in reversed(range(seq_len)):
         # Backprop through digit classifier
         classifier_activation = classifier_act[t]
-        classifier_grad_propagate = classifier_backward(seq_len, classifier_activation, gradients, classifier_gradient, digit_classifier_parameters)
+        classifier_grad_propagate = classifier_backward(seq_len, classifier_activation, gradients, classifier_gradients, digit_classifier_parameters)
 
-        frame_error = prediction_error[t]
-        d_pred_error = pred_frame_gradients / seq_len
-        d_pred = (2.0 * frame_error / np.prod(frame_error.shape)) * d_pred_error
+        dL_d_lower += classifier_grad_propagate
 
-        lower_net_input, _ = lower_network_act[t]
-        lower_net_gradients += np.matmul(d_pred.T, lower_net_input)
-        d_lower_pred = np.matmul(d_pred, lower_net_parameters)
+        # Backprop through lower net state update
+        deriv_value, deriv_prev_lower_state = lower_net_update_state_backward(lower_net_states[t], classifier_grad_propagate)
 
-        d_lower = classifier_grad_propagate + d_lower_pred + d_lower_next
-
-        # Backprop through lower state update
-        weights_comb, combined = combine_transitions_act[t]
-        lower_state_prev, _ = lower_network_act[t-1] if t > 0 else np.zeros_like(d_lower)
-        lower_state_curr, _ = lower_network_act[t]
-        d_pre_relu = d_lower * relu(lower_state_curr, return_derivative=True)
-        d_combined = np.matmul(d_pre_relu[:, :, np.newaxis], lower_state_prev [:, np.newaxis, :])
-        d_weights_comb = np.stack([np.tensordot(Vk, d_combined, axes=([0,1], [1,2])) for Vk in Vk_parameters], axis=1)
-
-        # Update Vk gradients
-        for k in range(K):
-            Vk_gradients[k] += np.sum(np.sum((weights_comb[:, k, None, None] * d_combined), axis=0), axis=0)
+        # Backprop through combine transitions
+        dL_dgenerated_weights = combine_transitions_backward(deriv_value, combine_transitions_act[t], Vk_gradients, Vk_parameters, batch_size)
 
         # Backprop through hyper network
-        hyper_network_acts = hyper_network_act[t]
-        d_hyper = d_weights_comb
-        for layer in reversed(range(len(hyper_network_parameters))):
-            weights = hyper_network_parameters[layer][0]
-            post_act = hyper_network_acts[layer+1]
-            pre_act = hyper_network_acts[layer]
-            if layer == len(hyper_network_parameters) - 1:
-                d_layer = d_hyper
-            else:
-                d_layer = d_hyper * relu(post_act, return_derivative=True)
-            hyper_net_gradients[layer][0] += np.dot(d_layer.T, pre_act)
-            hyper_net_gradients[layer][1] += d_layer.sum(axis=0)
-            d_hyper = np.dot(d_layer, weights)
+        dL_d_hyper = hyper_network_backward(hyper_network_act[t], dL_dgenerated_weights, hyper_net_gradients, hyper_network_parameters)
+        dL_d_higher += dL_d_hyper
 
         # Backprop through RNN
-        input_to_hidden_acts, hidden_to_hidden_acts = rnn_act[t]
-        d_higher = d_hyper + d_higher_next
-        d_pre_act_rnn = d_higher * relu(input_to_hidden_acts[1], return_derivative=True)
-        W_ih, _ = rnn_parameters[0]
-        W_hh, _ = rnn_parameters[1]
-            
-        rnn_parameters[0][0] += np.dot(d_pre_act_rnn.T, input_to_hidden_acts[0])
-        rnn_parameters[0][1] += d_pre_act_rnn.sum(axis=0)
-        rnn_parameters[1][0] += np.dot(d_pre_act_rnn.T, hidden_to_hidden_acts[0])
-        rnn_parameters[1][1] += d_pre_act_rnn.sum(axis=0)
-    
-        d_input_rnn = np.dot(d_pre_act_rnn, W_ih)
-        d_higher_prev = np.dot(d_pre_act_rnn, W_hh)
-        
-        # Update next gradients
-        d_lower_next = np.einsum('bij,bj->bi', combined, d_pre_relu)
-        d_higher_next = d_higher_prev
+        input_to_hidden_gradient, hidden_to_hidden_gradient = rnn_backward(rnn_activations[t], dL_d_higher, rnn_gradients, rnn_parameters)
+        dL_d_higher = hidden_to_hidden_gradient
+
+        # Gradients from prediction error
+        dL_d_predicted = 2 * prediction_error[t] / (batch_size * np.prod(prediction_error[t].shape[1:]) / seq_len) + input_to_hidden_gradient
+
+        # Backprop lower network
+        lower_net_input, _ = lower_network_act[t]
+        lower_net_gradients += np.matmul(dL_d_predicted.T, lower_net_input)
+        dL_d_lower_prev_error = np.matmul(dL_d_predicted, lower_net_parameters)
+
+        # Accumulate lower state gradients
+        dL_d_lower = deriv_prev_lower_state + dL_d_lower_prev_error
+
+    gradients = {'lower_net_gradients': lower_net_gradients, 'Vk_gradients': Vk_gradients, 'hyper_net_gradients': hyper_net_gradients, 'rnn_gradients': rnn_gradients, 'classifier_gradient': classifier_gradients}   
+
+    return gradients 
+
+def update_parameters(gradients, parameters, lr, batch_size):
+    # Gradients
+    lower_net_gradients = gradients['lower_net_gradients']
+    Vk_gradients = gradients['Vk_gradients']
+    hyper_net_gradients = gradients['hyper_net_gradients']
+    rnn_gradients = gradients['rnn_gradients']
+    classifier_gradients = gradients['classifier_gradient']
+
+    # Parameters
+    lower_net_parameters = parameters['lower_network_parameters']
+    Vk_parameters = parameters['Vk_parameters']
+    hyper_network_parameters = parameters['hyper_network_parameters']
+    rnn_parameters = parameters['higher_rnn_parameters']
+    digit_classifier_parameters = parameters['digit_classifier_parameters']
+
+    digit_classifier_parameters[0] -= lr * (classifier_gradients[0] / batch_size)
+    digit_classifier_parameters[1] -= lr * (classifier_gradients[1] / batch_size)
+
+    rnn_parameters[0][0] -= lr * (rnn_gradients[0][0] / batch_size)
+    rnn_parameters[0][1] -= lr * (rnn_gradients[0][1] / batch_size)
+    rnn_parameters[1][0] -= lr * (rnn_gradients[1][0] / batch_size)
+    rnn_parameters[1][1] -= lr * (rnn_gradients[1][1] / batch_size)
+
+    hyper_network_parameters[0][0] -= lr * (hyper_net_gradients[0][0] / batch_size)
+    hyper_network_parameters[0][1] -= lr * (hyper_net_gradients[0][1] / batch_size)
+    hyper_network_parameters[1][0] -= lr * (hyper_net_gradients[1][0] / batch_size)
+    hyper_network_parameters[1][1] -= lr * (hyper_net_gradients[1][1] / batch_size)
+
+    for each in range(len(Vk_parameters)): Vk_parameters[each] -= lr * (Vk_gradients[each] / batch_size)
+
+    lower_net_parameters -= lr * (lower_net_gradients / batch_size)
 
 def numpy_train_runner(model, dataloader, torch_model):
     for batched_image, batched_label in dataloader:
@@ -227,7 +296,8 @@ def numpy_train_runner(model, dataloader, torch_model):
         # Calculate losses
         loss, digit_pred_gradients = cross_entropy_loss(digit_prediction, batched_label)
 
-        backpropagate(batched_image, model_activations, model_parameters, digit_pred_gradients, prediction_error, torch_model)
+        gradients = backpropagate(batched_image, model_activations, model_parameters, digit_pred_gradients, prediction_error, torch_model)
+        update_parameters(gradients, model_parameters, 0.01, batched_image.shape[0])
 
         # Combine losses with regularization
         loss = loss + 0.1 * prediction_error #+ 0.01 * np.mean(lower_level_network_parameters**2)
@@ -237,7 +307,7 @@ def numpy_train_runner(model, dataloader, torch_model):
 def numpy_dpc(torch_model):
     """Shared parameters initialization with torch model"""
 
-    forward_caches = {'lower_network_caches': [],'hyper_network_caches': [], 'rnn_caches': [], 'combine_transitions_caches': [], 'classifier_caches': [], 'prediction_error': []}
+    forward_caches = {'lower_network_caches': [],'hyper_network_caches': [], 'rnn_caches': [], 'combine_transitions_caches': [], 'lower_net_states': [], 'classifier_caches': [], 'prediction_error': []}
 
     # Spatial decoder
     lower_level_network_parameters = torch_model.lower_level_network.weight.data.numpy()
@@ -269,7 +339,7 @@ def numpy_dpc(torch_model):
             predicted_frame = lower_network_forward(lower_level_state, lower_level_network_parameters, forward_caches)
             avg_error, error = prediction_frame_error(predicted_frame, each_frame, forward_caches)
 
-            # Update higher level
+            # Use RnnCell to update the higher level state
             higher_level_state = rnn_forward(error, higher_level_state, higher_rnn_parameters, forward_caches)
 
             # Generate transition weights
@@ -277,8 +347,7 @@ def numpy_dpc(torch_model):
             value = combine_transitions(generated_weights, Vk_parameters, forward_caches)
 
             # Update lower state with ReLU and noise
-            lower_level_state_reshaped = np.expand_dims(lower_level_state, axis=-1)
-            lower_level_state = relu(np.matmul(value, lower_level_state_reshaped).squeeze(-1)) + 0.01 * np.random.randn(*lower_level_state.shape)
+            lower_level_state = lower_net_state_update(lower_level_state, value, forward_caches)
 
             # Collect digit logits
             model_prediction = classifier_forward(lower_level_state, digit_classifier_parameters, forward_caches)
