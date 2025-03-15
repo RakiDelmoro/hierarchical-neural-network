@@ -107,5 +107,5 @@ class Atom:
 
     def __repr__(self):
         # return self.data
-        return f'Atom.tensor({self.data})'
+        return f'Atom.tensor({self.data} grad={self.grad})'
         # return f"IceTensor(data={self.data}, grad={self.grad})"
