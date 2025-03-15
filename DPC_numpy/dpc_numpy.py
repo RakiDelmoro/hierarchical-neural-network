@@ -5,7 +5,7 @@ from DPC_numpy.utils import cross_entropy_loss
 from DPC_numpy.backward_pass import backpropagate
 from DPC_numpy.forward_pass import lower_network_forward, rnn_forward, hyper_network_forward, lower_net_state_update, classifier_forward, prediction_frame_error, combine_transitions
 
-def numpy_train_runner(model, dataloader, torch_model):
+def numpy_train_runner(model, dataloader, torch_model, t):
     for batched_image, batched_label in dataloader:
         # From (Batch, height*width) to (Batch, seq_len, height*width)
         batched_image = batched_image.view(batched_image.size(0), -1, 28*28).repeat(1, 5, 1).numpy()
@@ -19,7 +19,7 @@ def numpy_train_runner(model, dataloader, torch_model):
         loss, digit_pred_gradients = cross_entropy_loss(digit_prediction, batched_label)
 
         gradients = backpropagate(batched_image, model_activations, model_parameters, digit_pred_gradients, prediction_error, torch_model)
-        update_parameters(gradients, model_parameters, 1e-3, batched_image.shape[0])
+        update_parameters(gradients, model_parameters, 1e-3, batched_image.shape[0], t)
 
         loss = loss + 0.1 * prediction_error 
         print(loss)
@@ -47,8 +47,8 @@ def numpy_dpc(torch_model):
         batch_size, seq_len, _ = batched_image.shape
 
         # Initialize states
-        lower_level_state = np.zeros(shape=(batch_size, torch_model.lower_dim))
-        higher_level_state = np.zeros(shape=(batch_size, torch_model.higher_dim))
+        lower_level_state = np.zeros(shape=(batch_size, torch_model.lower_dim), dtype=np.float32)
+        higher_level_state = np.zeros(shape=(batch_size, torch_model.higher_dim), dtype=np.float32)
 
         # Storage for outputs
         pred_errors = []
